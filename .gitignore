@@ -1,0 +1,6 @@
+.pio/
+.claude/
+.vscode/
+# reference photos and sketches
+*.jpg
+*.png

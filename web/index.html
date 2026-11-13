@@ -1,0 +1,1638 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hallow</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    /* Everything visual is driven by CSS variables and body[data-*] attributes,
+       which the look pickers (palette / font / style, 1-100 each) set from JS.
+       The defaults here are look (1,1,1), so the page is right before JS runs. */
+    :root {
+      --page: #f5f6fb; --page-ink: #1b1d2a; --page-line: rgba(27,29,42,.12); --page-surface: #ffffff;
+      --brand: #2563eb; --brand-ink: #ffffff;
+      --font-head: system-ui, sans-serif; --font-body: system-ui, sans-serif; --font-num: system-ui, sans-serif;
+      --head-ls: 0em; --head-w: 600; --fs: 15px;
+      --radius: 12px; --btn-radius: 8px; --gap: 16px; --pad: 16px; --maxw: 1100px;
+      --btn-py: 8px; --btn-px: 16px; --chart-h: 55vh;
+      --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+    }
+    * { box-sizing: border-box; }
+    html { font-size: var(--fs); }
+    body { margin: 0; font-family: var(--font-body); background: var(--page); color: var(--page-ink); line-height: 1.4; min-height: 100vh; }
+
+    /* ---- top bar: brand + look pickers ---------------------------------- */
+    .topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px;
+      padding: 12px 16px; background: var(--page); border-bottom: 1px solid var(--page-line); z-index: 5; }
+    body[data-sticky="1"] .topbar { position: sticky; top: 0; }
+    body[data-topbar="accent"] .topbar { background: var(--brand); color: var(--brand-ink); border-bottom-color: transparent; }
+    body[data-topbar="float"] .topbar { max-width: var(--maxw); margin: var(--gap) auto 0; border: 1px solid var(--page-line);
+      border-radius: var(--radius); background: var(--page-surface); box-shadow: var(--shadow); }
+    body[data-topbar="float"][data-sticky="1"] .topbar { top: 8px; }
+    @media (max-width: 760px) { body[data-topbar="float"] .topbar { margin: 12px 16px 0; } }
+    .brand { display: flex; align-items: baseline; gap: 10px; }
+    .brand h1 { margin: 0; font-family: var(--font-head); font-weight: var(--head-w); letter-spacing: var(--head-ls); font-size: 1.45rem; }
+    .brand small { opacity: .65; font-size: .85rem; }
+    .pickers { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+    /* The box drops down under its icon rather than sitting beside it, so opening
+       one never shifts the icons and a second click on the same icon closes it. */
+    .picker { position: relative; }
+    .picker input { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+    .pick-btn { width: 36px; height: 36px; padding: 0; display: grid; place-items: center; cursor: pointer;
+      border-radius: 6px; border: 1px solid var(--page-line); background: var(--page-surface); color: var(--page-ink); }
+    .pick-btn svg { width: 20px; height: 20px; }
+    .pick-btn:hover, .pick-btn[aria-expanded="true"] { border-color: var(--brand); color: var(--brand); }
+    body[data-topbar="accent"] .pick-btn { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.35); color: inherit; }
+    body[data-topbar="accent"] .pick-btn:hover, body[data-topbar="accent"] .pick-btn[aria-expanded="true"] { background: rgba(255,255,255,.3); color: inherit; }
+    .pick-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+    body[data-topbar="accent"] .pick-btn:focus-visible { outline-color: currentColor; }
+    .pickers input { width: 64px; height: 36px; font: inherit; font-family: var(--font-num); padding: 4px 6px; border-radius: 6px;
+      border: 1px solid var(--page-line); background: var(--page-surface); color: var(--page-ink); }
+    body[data-topbar="accent"] .pickers input { background: rgba(255,255,255,.92); color: #111; border-color: transparent; }
+
+    /* ---- section layout ------------------------------------------------- */
+    main { display: grid; grid-template-columns: 1fr; grid-auto-flow: row dense; gap: var(--gap);
+      max-width: var(--maxw); margin: 0 auto; padding: var(--gap) 16px calc(var(--gap) * 2); }
+    body[data-layout="grid2"] main { grid-template-columns: 1fr 1fr; }
+    body[data-layout="grid2"] .sec[data-sec="strain"],
+    body[data-layout="grid2"] .sec[data-sec="timings"] { grid-column: 1 / -1; }
+    body[data-layout="grid3"] main { grid-template-columns: repeat(3, 1fr); }
+    body[data-layout="grid3"] .sec[data-sec="strain"],
+    body[data-layout="grid3"] .sec[data-sec="timings"] { grid-column: 1 / -1; }
+    body[data-layout="sidebar-left"] main { grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); }
+    body[data-layout="sidebar-left"] .sec { grid-column: 1; }
+    body[data-layout="sidebar-left"] .sec[data-sec="strain"] { grid-column: 2; grid-row: 1 / span 4; }
+    body[data-layout="sidebar-right"] main { grid-template-columns: minmax(0, 1fr) minmax(260px, 360px); }
+    body[data-layout="sidebar-right"] .sec { grid-column: 2; }
+    body[data-layout="sidebar-right"] .sec[data-sec="strain"] { grid-column: 1; grid-row: 1 / span 4; }
+    @media (max-width: 760px) {
+      body main { grid-template-columns: minmax(0, 1fr) !important; }
+      body .sec { grid-column: auto !important; grid-row: auto !important; }
+    }
+
+    /* ---- sections -------------------------------------------------------- */
+    /* Each .sec gets --bg --accent --ink --muted --accent-ink --surface --line from its palette colour. */
+    .sec { min-width: 0; display: flex; flex-direction: column; gap: calc(var(--pad) * .75);
+      padding: var(--pad); border-radius: var(--radius); background: var(--bg); color: var(--ink); box-shadow: var(--shadow); }
+    body[data-secfx="fill-border"] .sec { border: 2px solid var(--accent); }
+    body[data-secfx="left-bar"] .sec { border-left: 6px solid var(--accent); }
+    body[data-secfx="top-bar"] .sec { border-top: 5px solid var(--accent); }
+    body[data-secfx="outline"] .sec { background: color-mix(in srgb, var(--bg) 45%, var(--page)); border: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); }
+    body[data-secfx="gradient"] .sec { background: linear-gradient(135deg, var(--bg), color-mix(in srgb, var(--bg) 72%, var(--accent))); }
+    body[data-align="center"] .sec { text-align: center; }
+    body[data-align="center"] .row { justify-content: center; }
+    body[data-align="center"] .timing-grid label { align-items: center; }
+
+    .sec h2 { margin: 0; font-family: var(--font-head); font-weight: var(--head-w); letter-spacing: var(--head-ls); }
+    body[data-head="caps"] .sec h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: calc(var(--head-ls) + .12em); color: var(--accent); }
+    body[data-head="plain"] .sec h2 { font-size: 1.15rem; }
+    body[data-head="large"] .sec h2 { font-size: 1.55rem; color: var(--accent); }
+    body[data-head="underline"] .sec h2 { font-size: 1.1rem; align-self: flex-start; border-bottom: 3px solid var(--accent); padding-bottom: 2px; }
+    body[data-head="underline"][data-align="center"] .sec h2 { align-self: center; }
+    body[data-head="pill"] .sec h2 { font-size: .85rem; align-self: flex-start; background: var(--accent); color: var(--accent-ink); padding: 4px 12px; border-radius: 999px; }
+    body[data-head="pill"][data-align="center"] .sec h2 { align-self: center; }
+    body[data-head="band"] .sec h2 { font-size: 1rem; margin: calc(var(--pad) * -1) calc(var(--pad) * -1) 0; padding: 10px var(--pad);
+      background: var(--accent); color: var(--accent-ink); border-radius: var(--radius) var(--radius) 0 0; }
+    body[data-head="band"][data-sec="left-bar"] .sec h2 { border-top-left-radius: 0; }
+    body[data-head="numbered"] .sec h2 { font-size: 1.1rem; }
+    body[data-head="numbered"] .sec h2::before { content: attr(data-num); color: var(--accent); font-family: var(--font-num); margin-right: .55em; }
+
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 6px; counter-reset: step; font-size: .82rem; }
+    .steps li { counter-increment: step; }
+    .steps li::before { content: counter(step) ". "; color: var(--accent); font-family: var(--font-num); }
+    .steps li:not(:last-child)::after { content: " →"; opacity: .6; }
+    body[data-align="center"] .steps { justify-content: center; }
+    .cal-group { display: flex; flex-direction: column; gap: 6px; }
+    .cal-group h3 { margin: 0; font-family: var(--font-head); font-size: .85rem; font-weight: var(--head-w); color: var(--accent); }
+
+    /* ---- buttons ---------------------------------------------------------- */
+    .sec button { font: inherit; font-size: .93rem; padding: var(--btn-py) var(--btn-px); border-radius: var(--btn-radius);
+      color: var(--ink); background: var(--surface); border: 1px solid var(--line); cursor: pointer;
+      transition: transform .08s, background-color .15s, box-shadow .15s, filter .15s; }
+    .sec button:hover:not(:disabled) { filter: brightness(1.04); }
+    .sec button:active:not(:disabled) { transform: translateY(1px); }
+    .sec button:disabled { opacity: .4; cursor: default; }
+    .sec button:focus-visible, .sec input:focus-visible, .pickers input:focus-visible { outline: 2px solid var(--accent, var(--brand)); outline-offset: 2px; }
+    body[data-btn="outline"] .sec button { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+    body[data-btn="solid"] .sec button { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+    body[data-btn="pill"] .sec button { border-radius: 999px; border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+    body[data-btn="ghost"] .sec button { background: transparent; border-color: transparent; color: var(--accent); font-weight: 600; }
+    body[data-btn="ghost"] .sec button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+    body[data-btn="raised"] .sec button { border-color: var(--accent); box-shadow: 0 3px 0 var(--accent); margin-bottom: 3px; }
+    body[data-btn="raised"] .sec button:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--accent); }
+    body[data-btn="soft"] .sec button { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); border-color: transparent; }
+
+    /* ---- strain gauge ----------------------------------------------------- */
+    .chart-wrap { position: relative; height: var(--chart-h); min-height: 260px; background: var(--surface);
+      border: 1px solid var(--line); border-radius: calc(var(--radius) * .7); padding: 8px; }
+    body[data-layout^="sidebar"] .sec[data-sec="strain"] .chart-wrap { flex: 1; }
+
+    /* ---- sequence timings ------------------------------------------------- */
+    .timing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+    /* Labels in a grid row stretch to the same height; space-between pins each box
+       to the bottom, so a label that wraps to two lines doesn't push its box out of line. */
+    .timing-grid label { display: flex; flex-direction: column; justify-content: space-between; gap: 4px; font-size: .85rem; color: var(--muted); }
+    .timing-grid input { font: inherit; font-family: var(--font-num); font-size: 1rem; color: var(--ink); width: 100%;
+      padding: 6px 6px; border: none; border-bottom: 3px solid var(--line); outline: none;
+      background: var(--surface); border-radius: calc(var(--btn-radius) * .6) calc(var(--btn-radius) * .6) 0 0; }
+    body[data-align="center"] .timing-grid input { text-align: center; }
+    /* Semantic colours stay fixed whatever the palette: green = ESP matches the box, red = it doesn't. */
+    .timing-grid input.match { border-bottom-color: #16a34a; }
+    .timing-grid input.differs { border-bottom-color: #dc2626; }
+    #timingState { font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--surface); color: var(--muted); }
+    #timingState.ok { background: #dcfce7; color: #166534; }
+    #timingState.pending { background: #fee2e2; color: #991b1b; }
+
+    /* ---- sequence timeline ------------------------------------------------- */
+    /* Colour says what kind of step it is (pause / forward / reverse); texture
+       says which motor it is, so the two moves of one motor pair up by eye. */
+    .timeline { position: relative; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+    .tl-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+    .tl-head h3 { margin: 0; font-family: var(--font-head); font-size: .9rem; font-weight: var(--head-w); color: var(--accent); }
+    .tl-track { display: flex; height: 44px; border-radius: calc(var(--btn-radius) * .8); overflow: hidden;
+      background: var(--surface); border: 1px solid var(--line); }
+    /* Width follows duration via flex-grow; min-width keeps 25 ms pauses hoverable. */
+    .tl-seg { flex: 0 0 0; min-width: 3px; box-shadow: inset -1px 0 0 var(--surface); cursor: default; }
+    .tl-seg.hot { outline: 2px solid var(--ink); outline-offset: -2px; position: relative; z-index: 1; }
+    .tl-sw { display: inline-block; width: 26px; height: 14px; border-radius: 3px; border: 1px solid var(--line); }
+    .tl-pause { background-color: var(--tl-pause); --tex: transparent; }
+    .tl-fwd { background-color: var(--tl-fwd); --tex: var(--tl-fwd-tex); }
+    .tl-rev { background-color: var(--tl-rev); --tex: var(--tl-rev-tex); }
+    .tl-motor { background-color: var(--surface); --tex: var(--ink); }
+    .tl-lid { background-image: repeating-linear-gradient(45deg, var(--tex) 0 2.5px, transparent 2.5px 7px); }
+    .tl-pinion { background-image: radial-gradient(var(--tex) 1.5px, transparent 2px); background-size: 7px 7px; }
+    .tl-spool { background-image: repeating-linear-gradient(0deg, var(--tex) 0 1.5px, transparent 1.5px 6px),
+      repeating-linear-gradient(90deg, var(--tex) 0 1.5px, transparent 1.5px 6px); }
+    .tl-axis { position: relative; height: 16px; font-family: var(--font-num); font-size: .72rem; color: var(--muted); }
+    .tl-axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+    .tl-axis span:first-child { transform: none; }
+    .tl-axis span:last-child:not(:first-child) { transform: translateX(-100%); }
+    .tl-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8rem; color: var(--muted); }
+    .tl-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .tl-tip { position: absolute; z-index: 4; pointer-events: none; padding: 6px 9px; border-radius: 6px; font-size: .8rem;
+      background: var(--ink); color: var(--bg); box-shadow: 0 6px 18px rgba(0,0,0,.2); white-space: nowrap; }
+    .tl-tip b { display: block; }
+
+    /* ---- machine state ------------------------------------------------------ */
+    /* Not one of the five palette sections: it takes the page's own colours. The
+       drawing keeps a fixed light stage, because the part colours ARE the key
+       (blue lid, orange spool, grey arm, black rack/pinion) and black must read. */
+    .sec[data-sec="machine"] { --bg: var(--page-surface); --accent: var(--brand); --ink: var(--page-ink);
+      --muted: color-mix(in srgb, var(--page-ink) 70%, transparent); --accent-ink: var(--brand-ink);
+      --surface: color-mix(in srgb, var(--page-ink) 5%, var(--page-surface)); --line: color-mix(in srgb, var(--page-ink) 18%, transparent); }
+    body[data-layout^="grid"] .sec[data-sec="machine"] { grid-column: 1 / -1; }
+    body[data-layout="sidebar-left"] .sec[data-sec="machine"] { grid-column: 2; }
+    body[data-layout="sidebar-right"] .sec[data-sec="machine"] { grid-column: 1; }
+    .fsm { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; }
+    body[data-align="center"] .fsm { justify-content: center; }
+    .fsm-edge { display: flex; flex-direction: column; align-items: center; min-width: 64px; max-width: 112px;
+      font-size: .72rem; line-height: 1.15; text-align: center; color: var(--muted); }
+    .fsm-edge .arr { font-size: 1.1rem; color: var(--ink); opacity: .45; }
+    .fsm-edge.active { color: var(--ink); font-weight: 600; }
+    .fsm-edge.active .arr { color: var(--accent); opacity: 1; }
+    .sec[data-sec="machine"] .fsm button { margin: 0; padding: 7px 12px; border-radius: 999px; border: 2px solid var(--line);
+      background: var(--surface); color: var(--ink); box-shadow: none; font-weight: 600; font-size: .86rem; }
+    .sec[data-sec="machine"] .fsm button small { font-family: var(--font-num); opacity: .6; margin-right: 4px; }
+    .sec[data-sec="machine"] .fsm .cur button { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); opacity: 1; }
+    .sec[data-sec="machine"] .fsm .next button { border-color: var(--accent); color: var(--accent); opacity: 1; animation: fsmPulse 1.6s ease-in-out infinite; }
+    .sec[data-sec="machine"] .fsm .next button:disabled { animation: none; }
+    @keyframes fsmPulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); } }
+    @media (prefers-reduced-motion: reduce) { .sec[data-sec="machine"] .fsm .next button { animation: none; } }
+    .sec select { font: inherit; font-size: .9rem; padding: 5px 8px; border-radius: var(--btn-radius);
+      border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+    .stage { background: #f6efe4; border: 1px solid var(--line); border-radius: calc(var(--radius) * .7); overflow: hidden; }
+    .stage svg { display: block; width: 100%; height: auto; }
+    .fsm-now { display: flex; flex-direction: column; gap: 6px; }
+    .fsm-now b { font-weight: 600; }
+    .fsm-bar { height: 6px; border-radius: 3px; background: var(--surface); border: 1px solid var(--line); overflow: hidden; }
+    .fsm-bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+    .mstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; text-align: left; }
+    .mstats > div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: calc(var(--radius) * .6);
+      background: var(--surface); border: 1px solid var(--line); font-size: .78rem; color: var(--muted); }
+    .mstats span { display: flex; align-items: center; gap: 6px; }
+    .mstats b { color: var(--ink); font-family: var(--font-num); font-weight: 600; font-size: .86rem; }
+    .sw { flex: none; display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); }
+
+    #flash { position: fixed; inset: 0; background: #dc2626; opacity: 0; pointer-events: none; z-index: 10; }
+    #flash.on { animation: flash 0.4s ease-in-out 4 alternate; }
+    @keyframes flash { from { opacity: 0; } to { opacity: 0.6; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><h1>Hallow</h1><small>candy dispenser controller</small></div>
+    <div class="pickers">
+      <!-- Each square icon reveals its number box; Enter applies and hides it,
+           clicking away (or Escape) hides it without applying. -->
+      <div class="picker">
+        <button type="button" class="pick-btn" aria-label="Colour palette" aria-expanded="false" title="Colour palette (1–100)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.7-.8 1.7-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7H16a5 5 0 0 0 5-5c0-4-4-7.2-9-7.2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="7.5" cy="11" r="1.4" fill="currentColor"/><circle cx="10" cy="7" r="1.4" fill="currentColor"/><circle cx="14.5" cy="7" r="1.4" fill="currentColor"/><circle cx="17" cy="10.5" r="1.4" fill="currentColor"/></svg>
+        </button>
+        <input id="pickPalette" type="number" min="1" max="100" value="1" aria-label="Colour palette, 1 to 100" hidden>
+      </div>
+      <div class="picker">
+        <button type="button" class="pick-btn" aria-label="Font set" aria-expanded="false" title="Font set (1–100)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19 8.5 5h1L15 19M5.3 14h6.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M20.5 19v-5.2a2.6 2.6 0 0 0-5 0M20.5 15.6c-3.3 0-5.2.7-5.2 2.1 0 .9.7 1.5 1.8 1.5 1.9 0 3.4-1.3 3.4-3.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <input id="pickFont" type="number" min="1" max="100" value="1" aria-label="Font set, 1 to 100" hidden>
+      </div>
+      <div class="picker">
+        <button type="button" class="pick-btn" aria-label="Style" aria-expanded="false" title="Style (1–100)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.5" y="3.5" width="7" height="7" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3.5" y="13.5" width="17" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </button>
+        <input id="pickStyle" type="number" min="1" max="100" value="1" aria-label="Style, 1 to 100" hidden>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="sec" data-sec="conn">
+      <h2>Connection</h2>
+      <div class="row">
+        <button id="connect">Connect</button>
+        <button id="disconnect" disabled>Disconnect</button>
+        <span id="status" class="muted">Not connected (use Chrome or Edge)</span>
+      </div>
+    </section>
+
+    <section class="sec" data-sec="machine">
+      <h2>Machine State</h2>
+      <ol class="fsm" id="fsm" aria-label="Sequence states"></ol>
+      <div class="row">
+        <button id="fsmNext">Next state</button>
+        <button id="fsmCycle">Play full cycle</button>
+        <button id="fsmReset">Reset to closed</button>
+        <label class="muted">Speed
+          <select id="fsmSpeed">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1× (real timing)</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+      </div>
+      <div class="stage">
+        <svg id="mach" viewBox="0 -40 975 400" role="img" aria-label="Side view of the dispenser box and the candy bowl on its load cell">
+          <line x1="0" y1="350" x2="975" y2="350" stroke="#cbbfae" stroke-width="2"/>
+          <rect x="56" y="110" width="488" height="224" fill="#ecdcc6"/>
+          <!-- mechanism, in its own frame: x along the rail toward the bowl -->
+          <g transform="translate(120 270) rotate(-8)">
+            <rect x="40" y="-2" width="380" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="296" y="2" width="8" height="14" rx="1" fill="#64748b"/>
+            <rect x="111" y="21" width="38" height="38" rx="4" fill="#2b2b2b"/>
+            <g id="mPinion"><path id="mGear" fill="#111" stroke="#444" stroke-width="1"/>
+              <circle r="6" fill="#3a3a3a"/><line x1="0" y1="0" x2="0" y2="-17" stroke="#e5e7eb" stroke-width="2.5" stroke-linecap="round"/></g>
+            <path id="mSpring" fill="none" stroke="#7c8a99" stroke-width="2" stroke-linejoin="round"/>
+            <g id="mRack"><path id="mRackBody" fill="#111"/><rect x="-6" y="-16" width="6" height="18" fill="#111"/></g>
+            <g id="mArm"><rect x="0" y="-16" width="200" height="14" rx="3" fill="#c4c8ce" stroke="#8e939b"/>
+              <circle cx="8" cy="-16" r="2.5" fill="#f6efe4" stroke="#6b7280" stroke-width="1.2"/></g>
+            <rect x="-49" y="-37" width="30" height="30" rx="4" fill="#ea580c"/>
+            <g transform="translate(-34 -22)"><circle id="mDrum" r="10" fill="#fdba74" stroke="#c2410c" stroke-width="2"/>
+              <g id="mSpokes" stroke="#9a3412" stroke-width="2" stroke-linecap="round"><line x1="-6" y1="0" x2="6" y2="0"/><line x1="0" y1="-6" x2="0" y2="6"/></g></g>
+            <path id="mString" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round"/>
+          </g>
+          <!-- box: back wall left, short wall right so the arm clears it, floor -->
+          <g fill="#b07a52" stroke="#8a5a36" stroke-width="1.5">
+            <rect x="40" y="110" width="16" height="240"/><rect x="544" y="214" width="16" height="136"/><rect x="40" y="334" width="520" height="16"/>
+          </g>
+          <!-- lid motor + teardrop cam, then the hinged lid with its front lip -->
+          <rect x="95" y="109" width="30" height="30" rx="4" fill="#1e3a8a"/>
+          <g id="mCam"><path id="mCamBody" fill="#3b5bdb" stroke="#1e3a8a" stroke-width="1.5"/><circle r="3" fill="#c7d2fe"/></g>
+          <g id="mLid" fill="#2f4fe0" stroke="#1e3a8a" stroke-width="1.5">
+            <rect x="40" y="98" width="532" height="12" rx="2"/><rect x="560" y="98" width="12" height="116" rx="2"/>
+            <circle cx="48" cy="104" r="4" fill="#1e3a8a"/>
+          </g>
+          <!-- load cell: fixed on the pedestal at the left, bowl on its free end -->
+          <rect x="668" y="326" width="24" height="24" fill="#475569"/>
+          <path id="mBeam" fill="#d4d8de" stroke="#8b939e" stroke-width="1"/>
+          <rect id="mGauge" x="700" y="317" width="30" height="7" rx="1"/>
+          <text x="700" y="345" font-size="10" fill="#57534e" font-family="system-ui, sans-serif">strain gauge</text>
+          <path d="M692 340 H 905 V 316" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="3 3"/>
+          <g id="mBowl">
+            <rect x="796" y="304" width="12" height="11" fill="#64748b"/>
+            <rect x="660" y="298" width="160" height="6" rx="2" fill="#64748b"/>
+            <g id="mCandies"></g>
+            <path d="M646 236 H834 C830 280 800 298 760 298 H720 C680 298 650 280 646 236 Z" fill="#7c3aed" stroke="#5b21b6" stroke-width="1.5"/>
+            <rect x="642" y="232" width="196" height="7" rx="3.5" fill="#8b5cf6" stroke="#5b21b6"/>
+          </g>
+          <g font-family="ui-monospace, Menlo, monospace">
+            <rect x="848" y="196" width="120" height="120" rx="8" fill="#0f172a"/>
+            <text x="858" y="213" font-size="9.5" fill="#94a3b8" letter-spacing=".08em">LOAD CELL</text>
+            <text id="mGrams" x="858" y="240" font-size="21" fill="#a7f3d0"></text>
+            <line id="mThresh" x1="858" x2="956" stroke="#f87171" stroke-width="1" stroke-dasharray="3 2"/>
+            <path id="mSpark" fill="none" stroke="#5eead4" stroke-width="1.5" stroke-linejoin="round"/>
+            <text id="mLcd" x="858" y="306" font-size="9" fill="#94a3b8"></text>
+          </g>
+          <!-- the hand that takes too much -->
+          <g id="mHand" display="none">
+            <rect x="-15" y="-260" width="30" height="222" rx="6" fill="#15803d"/>
+            <rect x="-18" y="-44" width="36" height="9" rx="3" fill="#166534"/>
+            <g fill="#f1c7a0" stroke="#c99a70" stroke-width="1">
+              <rect x="-16" y="-36" width="32" height="30" rx="7"/>
+              <rect x="-15" y="-10" width="7" height="22" rx="3.5"/><rect x="-7" y="-9" width="7" height="25" rx="3.5"/>
+              <rect x="1" y="-9" width="7" height="24" rx="3.5"/><rect x="9" y="-10" width="7" height="20" rx="3.5"/>
+              <rect x="-24" y="-26" width="7" height="20" rx="3.5" transform="rotate(-25 -20 -16)"/>
+            </g>
+            <g id="mHeld"></g>
+          </g>
+          <g id="mBurst" stroke="#dc2626" stroke-width="3" stroke-linecap="round" opacity="0"></g>
+        </svg>
+      </div>
+      <div class="fsm-now"><b id="fsmAction" aria-live="polite"></b><div class="fsm-bar"><i id="fsmBar"></i></div></div>
+      <div class="mstats">
+        <div><span><i class="sw" style="background:#2f4fe0"></i>Lid motor + cam</span><b id="msLid"></b></div>
+        <div><span><i class="sw" style="background:#111"></i>Pinion motor</span><b id="msPin"></b></div>
+        <div><span><i class="sw" style="background:#7c8a99"></i>Rack + spring</span><b id="msRack"></b></div>
+        <div><span><i class="sw" style="background:#c4c8ce"></i>Arm</span><b id="msArm"></b></div>
+        <div><span><i class="sw" style="background:#f97316"></i>Spool + tether</span><b id="msSpool"></b></div>
+        <div><span><i class="sw" style="background:#7c3aed"></i>Bowl on strain gauge</span><b id="msLoad"></b></div>
+      </div>
+      <p class="muted" id="fsmDesc" style="margin:0"></p>
+      <span class="muted" id="fsmMode"></span>
+    </section>
+
+    <section class="sec" data-sec="strain">
+      <h2>Strain Gauge</h2>
+      <div class="row">
+        <button id="start" disabled>Start sampling</button>
+        <button id="stop" disabled>Stop sampling</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </section>
+
+    <section class="sec" data-sec="seq">
+      <h2>Sequence</h2>
+      <div class="row">
+        <button class="motor" data-cmd="run_sequence" disabled>Run Sequence</button>
+        <button class="motor" data-cmd="spin_arm" disabled>Spin Pinion</button>
+        <button class="motor" data-cmd="spin_lid" disabled>Spin Lid</button>
+        <button class="motor" data-cmd="lift_lid" disabled>Lift Lid</button>
+        <button class="motor" data-cmd="reset_lid" disabled>Reset Lid</button>
+        <button class="motor" data-cmd="spool_in" disabled>Spool In</button>
+        <button class="motor" data-cmd="spool_out" disabled>Spool Out</button>
+      </div>
+      <ol class="steps muted">
+        <li>Open lid</li><li>Pinion launches arm</li><li>Pinion resets</li>
+        <li>Spool reels arm in</li><li>Close lid</li><li>Spool lets tether out</li>
+      </ol>
+    </section>
+
+    <section class="sec" data-sec="cal">
+      <h2>Calibration</h2>
+      <span class="muted">Adjust start positions (hold to repeat)</span>
+      <div class="cal-group">
+        <h3>Lid &amp; pinion</h3>
+        <div class="row">
+          <button class="motor jog" data-cmd="jog_lid_back" disabled>Lid −5°</button>
+          <button class="motor jog" data-cmd="jog_lid_fwd" disabled>Lid +5°</button>
+          <button class="motor jog" data-cmd="jog_arm_back" disabled>Pinion −5°</button>
+          <button class="motor jog" data-cmd="jog_arm_fwd" disabled>Pinion +5°</button>
+        </div>
+      </div>
+      <div class="cal-group">
+        <h3>Spool</h3>
+        <!-- 10 degrees: SPOOL_JOG_DEGREES in src/main.cpp. -->
+        <div class="row">
+          <button class="motor jog" data-cmd="jog_spool_back" disabled>Let out 10°</button>
+          <button class="motor jog" data-cmd="jog_spool_fwd" disabled>Reel in 10°</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec" data-sec="timings">
+      <h2>Sequence Timings</h2>
+      <div class="timing-grid">
+        <label>Lid step pause (ms)<input type="number" min="0" max="60000" step="1" data-key="lid_step_pause"></label>
+        <label>Lid open → pinion (ms)<input type="number" min="0" max="60000" step="1" data-key="lid_to_arm"></label>
+        <label>Arm out → pinion reset (ms)<input type="number" min="0" max="60000" step="1" data-key="pinion_pause"></label>
+        <label>Pinion reset → spool in (ms)<input type="number" min="0" max="60000" step="1" data-key="arm_hold"></label>
+        <label>Spool in → lid close (ms)<input type="number" min="0" max="60000" step="1" data-key="spool_to_lid"></label>
+        <label>Lid closed → spool out (ms)<input type="number" min="0" max="60000" step="1" data-key="lid_to_unspool"></label>
+        <label>Cooldown after sequence (ms)<input type="number" min="0" max="60000" step="1" data-key="cooldown"></label>
+      </div>
+      <div class="row">
+        <button id="timingChange" disabled>Change</button>
+        <button id="timingReset" disabled>Reset</button>
+        <span id="timingState">Not connected</span>
+      </div>
+      <div class="timeline">
+        <div class="tl-head"><h3>Timeline</h3><span id="tlTotal" class="muted"></span></div>
+        <div class="tl-track" id="tlTrack" role="img"></div>
+        <div class="tl-axis" id="tlAxis" aria-hidden="true"></div>
+        <div class="tl-legend">
+          <span><i class="tl-sw tl-pause"></i>Pause</span>
+          <span><i class="tl-sw tl-fwd"></i>Rotation</span>
+          <span><i class="tl-sw tl-rev"></i>Reverse rotation</span>
+          <span><i class="tl-sw tl-motor tl-lid"></i>Lid</span>
+          <span><i class="tl-sw tl-motor tl-pinion"></i>Pinion</span>
+          <span><i class="tl-sw tl-motor tl-spool"></i>Spool</span>
+        </div>
+        <span id="tlSource" class="muted"></span>
+        <div class="tl-tip" id="tlTip" hidden></div>
+      </div>
+    </section>
+  </main>
+  <div id="flash"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let port, writer, reader, readableClosed;
+
+const chart = new Chart($('chart'), {
+  type: 'scatter',
+  data: {
+    datasets: [
+      { label: 'Load', data: [], showLine: true, borderColor: '#059669', pointRadius: 0, borderWidth: 1.5 },
+      { label: 'Spike', data: [], backgroundColor: '#e11d48', borderColor: '#be123c', pointRadius: 7 },
+    ],
+  },
+  options: {
+    animation: false,
+    maintainAspectRatio: false,
+    scales: {
+      x: { type: 'linear', min: 0, title: { display: true, text: 'Time (s)' } },
+      y: { title: { display: true, text: 'Load (g)' } },
+    },
+  },
+});
+
+// =============================================================================
+// Look pickers: palette, font set and style, each 1-100. Look 1 of each is
+// hand-made; 2-100 are generated from a seeded PRNG, so a number always gives
+// the same look on every machine.
+// =============================================================================
+const SECTIONS = ['conn', 'strain', 'seq', 'cal', 'timings']; // palette colour i belongs to section i
+
+function rng(seed) {
+  return () => {
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const pick = (r, a) => a[Math.floor(r() * a.length)];
+const between = (r, lo, hi) => lo + r() * (hi - lo);
+function shuffle(r, a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+// ---- colour helpers ----
+function hsl(h, s, l) {
+  h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return '#' + [f(0), f(8), f(4)].map(x => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+}
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const rgba = (h, a) => `rgba(${rgb(h).join(',')},${a})`;
+function mix(a, b, t) {
+  const A = rgb(a), B = rgb(b);
+  return '#' + A.map((x, i) => Math.round(x + (B[i] - x) * t).toString(16).padStart(2, '0')).join('');
+}
+function lum(h) {
+  const [r, g, b] = rgb(h).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+function rotateHue(hex, deg) {
+  const [r, g, b] = rgb(hex).map(v => v / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  let h = 0, s = 0;
+  if (d) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    h = 60 * (max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4);
+  }
+  return hsl(h + deg, s * 100, l * 100);
+}
+function inkFor(bg, tint) {
+  const dark = mix(tint, '#000000', 0.82), light = mix(tint, '#ffffff', 0.9);
+  return contrast(bg, dark) >= contrast(bg, light) ? dark : light;
+}
+
+// ---- palettes ----
+const PALETTE_1 = {
+  page: '#f5f6fb',
+  sections: [
+    { bg: '#dbeafe', accent: '#2563eb' }, // Connection: blue
+    { bg: '#d1fae5', accent: '#059669' }, // Strain Gauge: green
+    { bg: '#fef3c7', accent: '#d97706' }, // Sequence: amber
+    { bg: '#fce7f3', accent: '#db2777' }, // Calibration: pink
+    { bg: '#ede9fe', accent: '#7c3aed' }, // Sequence Timings: violet
+  ],
+  spike: '#e11d48',
+};
+
+function makePalette(n) {
+  if (n === 1) return PALETTE_1;
+  const r = rng(n * 7919 + 11);
+  const base = r() * 360;
+  const scheme = pick(r, ['rainbow', 'rainbow', 'analogous', 'triad', 'complement', 'random']);
+  let hues;
+  if (scheme === 'rainbow') { const step = between(r, 48, 74); hues = [0, 1, 2, 3, 4].map(k => base + k * step); }
+  else if (scheme === 'analogous') { const step = between(r, 14, 26); hues = [0, 1, 2, 3, 4].map(k => base + k * step); }
+  else if (scheme === 'triad') hues = [0, 120, 240, 60, 180].map(d => base + d);
+  else if (scheme === 'complement') hues = [0, 180, 30, 210, 90].map(d => base + d);
+  else hues = [0, 1, 2, 3, 4].map(() => r() * 360);
+  if (r() < 0.5) hues = shuffle(r, hues);
+
+  const mode = pick(r, ['pastel', 'pastel', 'pastel', 'muted', 'dark', 'dark', 'neon', 'vivid-light', 'vivid-dark']);
+  const M = {
+    pastel:       { bs: [62, 90], bl: [89, 94], as: [68, 86], al: [36, 44], page: hsl(base, 25, 97.5) },
+    muted:        { bs: [18, 36], bl: [84, 90], as: [32, 52], al: [32, 40], page: hsl(base, 12, 95) },
+    dark:         { bs: [24, 44], bl: [15, 21], as: [70, 90], al: [64, 72], page: hsl(base, 22, 8) },
+    neon:         { bs: [12, 24], bl: [10, 14], as: [88, 100], al: [56, 64], page: hsl(base, 16, 5) },
+    'vivid-light':{ bs: [65, 82], bl: [60, 68], as: [55, 70], al: [20, 26], page: hsl(base, 22, 96) },
+    'vivid-dark': { bs: [50, 72], bl: [30, 38], as: [75, 92], al: [76, 82], page: hsl(base, 25, 7) },
+  }[mode];
+  const bs = between(r, ...M.bs), bl = between(r, ...M.bl), as = between(r, ...M.as), al = between(r, ...M.al);
+  return {
+    page: M.page,
+    sections: hues.map(h => ({ bg: hsl(h, bs, bl), accent: hsl(h, as, al) })),
+    spike: hsl(hues[1] + 180, Math.max(as, 75), mode === 'pastel' || mode === 'muted' || mode === 'vivid-light' ? 46 : 62),
+  };
+}
+
+// ---- font sets ----
+const SERIF = new Set(['Playfair Display', 'Merriweather', 'Lora', 'Fraunces', 'Bitter', 'Roboto Slab', 'Source Serif 4',
+  'Libre Baskerville', 'Crimson Pro', 'Literata']);
+const HEAD_FONTS = ['Inter', 'Poppins', 'Montserrat', 'Space Grotesk', 'DM Sans', 'Manrope', 'Outfit', 'Sora',
+  'Plus Jakarta Sans', 'Rubik', 'Work Sans', 'Raleway', 'Playfair Display', 'Merriweather', 'Lora', 'Fraunces', 'Bitter',
+  'Roboto Slab', 'Archivo', 'Barlow', 'Oswald', 'Josefin Sans', 'Quicksand', 'Nunito', 'Lexend', 'Urbanist',
+  'IBM Plex Sans', 'Fira Sans', 'Source Serif 4', 'Libre Baskerville', 'Crimson Pro', 'Syne', 'Comfortaa', 'Exo 2',
+  'Orbitron', 'Chakra Petch', 'Red Hat Display', 'Kanit', 'Titillium Web', 'Cabin', 'Karla', 'Mulish', 'Figtree',
+  'Onest', 'Albert Sans', 'Be Vietnam Pro', 'Epilogue', 'Hanken Grotesk', 'Bricolage Grotesque', 'Instrument Sans'];
+const BODY_FONTS = ['Inter', 'DM Sans', 'Manrope', 'Work Sans', 'IBM Plex Sans', 'Source Sans 3', 'Nunito Sans', 'Lato',
+  'Open Sans', 'Roboto', 'Noto Sans', 'Karla', 'Mulish', 'Figtree', 'Rubik', 'Lexend', 'Outfit', 'Plus Jakarta Sans',
+  'Public Sans', 'Atkinson Hyperlegible', 'Lora', 'Merriweather', 'Source Serif 4', 'Literata', 'PT Sans', 'Barlow',
+  'Cabin', 'Hanken Grotesk', 'Albert Sans', 'Be Vietnam Pro'];
+const MONO_FONTS = ['JetBrains Mono', 'IBM Plex Mono', 'Space Mono', 'Fira Code', 'Roboto Mono', 'Source Code Pro',
+  'Red Hat Mono', 'Ubuntu Mono'];
+
+const FONT_1 = { head: null, body: null, num: null, ls: 0, hw: 600, scale: 1 }; // null = system-ui
+function makeFont(n) {
+  if (n === 1) return FONT_1;
+  const r = rng(n * 104729 + 3);
+  const head = pick(r, HEAD_FONTS);
+  const body = r() < 0.3 ? head : pick(r, BODY_FONTS);
+  const num = r() < 0.55 ? pick(r, MONO_FONTS) : body;
+  return { head, body, num, ls: pick(r, [-0.02, 0, 0, 0.02, 0.05]), hw: r() < 0.2 ? 400 : 700, scale: pick(r, [0.94, 1, 1, 1.06]) };
+}
+const fontsRequested = new Set();
+function loadFont(name) {
+  if (!name || fontsRequested.has(name)) return;
+  fontsRequested.add(name);
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${name.replace(/ /g, '+')}:wght@400;700&display=swap`;
+  link.onload = () => document.fonts.ready.then(() => chart.update('none'));
+  document.head.appendChild(link);
+}
+function stack(name, kind) {
+  if (!name) return 'system-ui, sans-serif';
+  if (kind === 'mono' || MONO_FONTS.includes(name)) return `"${name}", ui-monospace, monospace`;
+  return SERIF.has(name) ? `"${name}", Georgia, serif` : `"${name}", system-ui, sans-serif`;
+}
+
+// ---- styles ----
+const STYLE_1 = {
+  layout: 'stack', order: SECTIONS, align: 'left', radius: 12, gap: 16, pad: 16,
+  sec: 'fill', head: 'caps', btn: 'outline', btnSize: 'md', shadow: 'soft', maxw: 1100,
+  bgfx: 'plain', topbar: 'bar', sticky: true, chartH: 55,
+  legend: { display: true, position: 'top', align: 'center', point: false },
+  line: { w: 1.5, dash: [], tension: 0, stepped: false, fill: false },
+  spike: { style: 'circle', r: 7 },
+  grid: { show: true, dash: false }, axisTitles: true,
+};
+function makeStyle(n) {
+  if (n === 1) return STYLE_1;
+  const r = rng(n * 15485863 + 5);
+  let order = shuffle(r, SECTIONS);
+  if (r() < 0.5) order = ['conn', ...order.filter(s => s !== 'conn')];
+  return {
+    layout: pick(r, ['stack', 'stack', 'grid2', 'grid2', 'grid3', 'sidebar-left', 'sidebar-right']),
+    order, align: pick(r, ['left', 'left', 'center']),
+    radius: pick(r, [0, 4, 8, 12, 16, 22, 28]), gap: pick(r, [8, 12, 16, 20, 28]), pad: pick(r, [12, 16, 20, 26]),
+    sec: pick(r, ['fill', 'fill', 'fill-border', 'left-bar', 'top-bar', 'outline', 'gradient']),
+    head: pick(r, ['caps', 'plain', 'underline', 'pill', 'band', 'numbered', 'large']),
+    btn: pick(r, ['outline', 'solid', 'pill', 'ghost', 'raised', 'soft']),
+    btnSize: pick(r, ['sm', 'md', 'md', 'lg']),
+    shadow: pick(r, ['none', 'soft', 'lifted']), maxw: pick(r, [960, 1100, 1280, 1600]),
+    bgfx: pick(r, ['plain', 'gradient', 'dots', 'mesh']),
+    topbar: pick(r, ['bar', 'accent', 'float']), sticky: r() < 0.5,
+    chartH: pick(r, [40, 50, 55, 65, 75]),
+    legend: { display: r() < 0.85, position: pick(r, ['top', 'bottom', 'left', 'right']), align: pick(r, ['start', 'center', 'end']), point: r() < 0.5 },
+    line: { w: pick(r, [1, 1.5, 2, 2.5, 3]), dash: pick(r, [[], [], [], [6, 4], [2, 3], [10, 4, 2, 4]]),
+            tension: pick(r, [0, 0, 0.25, 0.45]), stepped: r() < 0.15, fill: r() < 0.3 },
+    spike: { style: pick(r, ['circle', 'triangle', 'rect', 'rectRot', 'star', 'crossRot', 'rectRounded']), r: pick(r, [5, 6, 7, 9]) },
+    grid: { show: r() < 0.8, dash: r() < 0.4 }, axisTitles: r() < 0.8,
+  };
+}
+
+// ---- apply ----
+const secEls = Object.fromEntries(SECTIONS.map(s => [s, document.querySelector(`.sec[data-sec="${s}"]`)]));
+const secColors = {}; // per section: { bg, accent, ink }
+
+function applyLook(pn, fn, sn) {
+  const P = makePalette(pn), F = makeFont(fn), S = makeStyle(sn);
+  const root = document.documentElement.style, body = document.body;
+
+  // palette
+  const pageInk = inkFor(P.page, P.sections[0].accent);
+  const darkPage = lum(P.page) < 0.2;
+  root.setProperty('--page', P.page);
+  root.setProperty('--page-ink', pageInk);
+  root.setProperty('--page-line', rgba(pageInk, 0.13));
+  root.setProperty('--page-surface', darkPage ? mix(P.page, '#ffffff', 0.06) : '#ffffff');
+  root.setProperty('--brand', P.sections[0].accent);
+  root.setProperty('--brand-ink', inkFor(P.sections[0].accent, P.sections[0].accent));
+  SECTIONS.forEach((s, i) => {
+    const { bg, accent } = P.sections[i], el = secEls[s].style;
+    const ink = inkFor(bg, accent), light = lum(bg) > 0.3;
+    secColors[s] = { bg, accent, ink };
+    el.setProperty('--bg', bg);
+    el.setProperty('--accent', accent);
+    el.setProperty('--ink', ink);
+    el.setProperty('--muted', rgba(ink, 0.72));
+    el.setProperty('--accent-ink', inkFor(accent, accent));
+    el.setProperty('--surface', light ? 'rgba(255,255,255,.72)' : 'rgba(0,0,0,.24)');
+    el.setProperty('--line', rgba(ink, 0.18));
+  });
+  // Timeline: forward = the Timings section's accent, reverse = its hue turned
+  // well away from that, pause = a quiet tint of the ink. Textures are drawn in
+  // whichever of black/white reads on each colour.
+  {
+    const el = secEls.timings.style, { accent, ink } = secColors.timings, rev = rotateHue(accent, 150);
+    const tex = c => lum(c) > 0.3 ? 'rgba(0,0,0,.32)' : 'rgba(255,255,255,.5)';
+    el.setProperty('--tl-fwd', accent);
+    el.setProperty('--tl-rev', rev);
+    el.setProperty('--tl-fwd-tex', tex(accent));
+    el.setProperty('--tl-rev-tex', tex(rev));
+    el.setProperty('--tl-pause', rgba(ink, 0.2));
+  }
+  const a = P.sections.map(x => x.accent);
+  body.style.background = {
+    plain: P.page,
+    gradient: `linear-gradient(170deg, ${P.page} 30%, ${mix(P.page, a[0], 0.12)}) fixed`,
+    dots: `radial-gradient(${rgba(pageInk, 0.1)} 1px, transparent 1.6px) 0 0 / 18px 18px, ${P.page}`,
+    mesh: `radial-gradient(at 8% 0%, ${rgba(a[0], 0.18)}, transparent 45%) fixed, radial-gradient(at 95% 15%, ${rgba(a[3], 0.16)}, transparent 40%) fixed, radial-gradient(at 50% 100%, ${rgba(a[4], 0.15)}, transparent 50%) fixed, ${P.page}`,
+  }[S.bgfx];
+
+  // fonts
+  [F.head, F.body].forEach(f => loadFont(f));
+  if (F.num) loadFont(F.num);
+  root.setProperty('--font-head', stack(F.head));
+  root.setProperty('--font-body', stack(F.body));
+  root.setProperty('--font-num', stack(F.num));
+  root.setProperty('--head-ls', F.ls + 'em');
+  root.setProperty('--head-w', F.hw);
+  root.setProperty('--fs', (15 * F.scale).toFixed(1) + 'px');
+
+  // style
+  Object.assign(body.dataset, { layout: S.layout, align: S.align, secfx: S.sec, head: S.head, btn: S.btn,
+    topbar: S.topbar, sticky: S.sticky ? '1' : '0' });
+  root.setProperty('--radius', S.radius + 'px');
+  root.setProperty('--btn-radius', Math.round(S.radius * 0.6) + 'px');
+  root.setProperty('--gap', S.gap + 'px');
+  root.setProperty('--pad', S.pad + 'px');
+  root.setProperty('--maxw', S.maxw + 'px');
+  root.setProperty('--chart-h', S.chartH + 'vh');
+  const [py, px] = { sm: [6, 12], md: [8, 16], lg: [11, 20] }[S.btnSize];
+  root.setProperty('--btn-py', py + 'px');
+  root.setProperty('--btn-px', px + 'px');
+  root.setProperty('--shadow', { none: 'none', soft: '0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04)',
+    lifted: '0 4px 6px rgba(0,0,0,.06), 0 12px 28px rgba(0,0,0,.10)' }[S.shadow]);
+  S.order.forEach((s, i) => {
+    secEls[s].style.order = i;
+    secEls[s].querySelector('h2').dataset.num = String(i + 1).padStart(2, '0');
+  });
+  // Machine State isn't a palette section: it rides along right after Connection
+  // (same order value, and it follows Connection in the markup).
+  const mach = document.querySelector('.sec[data-sec="machine"]');
+  mach.style.order = S.order.indexOf('conn');
+  mach.querySelector('h2').dataset.num = '▸';
+
+  styleChart(P, F, S);
+}
+
+function styleChart(P, F, S) {
+  const { accent, ink } = secColors.strain;
+  const text = rgba(ink, 0.75), gridC = rgba(ink, 0.1), font = { family: stack(F.body) };
+  Chart.defaults.font.family = font.family;
+  Chart.defaults.color = text;
+
+  const [load, spike] = chart.data.datasets;
+  Object.assign(load, {
+    borderColor: accent, backgroundColor: rgba(accent, 0.15), borderWidth: S.line.w, borderDash: S.line.dash,
+    tension: S.line.tension, stepped: S.line.stepped, fill: S.line.fill ? 'start' : false, pointStyle: 'line',
+  });
+  Object.assign(spike, {
+    backgroundColor: P.spike, borderColor: mix(P.spike, '#000000', 0.25), borderWidth: 2,
+    pointStyle: S.spike.style, pointRadius: S.spike.r, pointHoverRadius: S.spike.r + 2,
+  });
+
+  const o = chart.options;
+  o.plugins.legend = {
+    display: S.legend.display, position: S.legend.position, align: S.legend.align,
+    labels: { usePointStyle: S.legend.point, color: text, font },
+  };
+  const axis = (title, extra) => ({
+    ...extra,
+    ticks: { color: text, font },
+    grid: { display: S.grid.show, color: gridC },
+    border: { color: rgba(ink, 0.3), dash: S.grid.dash ? [4, 4] : [] },
+    title: { display: S.axisTitles, text: title, color: text, font },
+  });
+  o.scales.x = axis('Time (s)', { type: 'linear', min: 0 });
+  o.scales.y = axis('Load (g)', {});
+  chart.update('none');
+}
+
+// ---- picker inputs: apply on Enter, remembered in this browser ----
+const pickers = { p: $('pickPalette'), f: $('pickFont'), s: $('pickStyle') };
+let look = { p: 1, f: 1, s: 1 };
+try {
+  const saved = JSON.parse(localStorage.getItem('hallow-look') || 'null');
+  if (saved) for (const k of ['p', 'f', 's']) if (Number.isInteger(saved[k]) && saved[k] >= 1 && saved[k] <= 100) look[k] = saved[k];
+} catch {}
+
+function setLook() {
+  for (const k in pickers) {
+    pickers[k].value = look[k];
+    // The number is hidden with its box, so the icon's tooltip says which one is in effect.
+    const btn = pickers[k].previousElementSibling;
+    btn.title = `${btn.getAttribute('aria-label')}: ${look[k]} (1–100)`;
+  }
+  applyLook(look.p, look.f, look.s);
+  try { localStorage.setItem('hallow-look', JSON.stringify(look)); } catch {}
+}
+for (const [k, input] of Object.entries(pickers)) {
+  const btn = input.previousElementSibling;
+  const open = () => {
+    input.value = look[k];
+    input.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    input.focus();
+    input.select();
+  };
+  // A number typed but not entered is not in effect, so hiding always drops it.
+  const close = () => {
+    input.value = look[k];
+    input.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  // Keep focus in the box when its own icon is pressed, so the click below
+  // toggles it shut instead of blur closing it and the click reopening it.
+  btn.addEventListener('mousedown', e => { if (!input.hidden) e.preventDefault(); });
+  btn.addEventListener('click', () => (input.hidden ? open() : close()));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { close(); btn.focus(); return; }
+    if (e.key !== 'Enter') return;
+    // Without this the same Enter press would "click" the icon once focus moves
+    // back to it below, and reopen the box.
+    e.preventDefault();
+    const v = Math.round(Number(input.value));
+    if (Number.isFinite(v) && input.value.trim() !== '') look[k] = Math.min(100, Math.max(1, v));
+    setLook();
+    close();
+    btn.focus();
+  });
+  input.addEventListener('blur', close); // clicking anywhere else
+}
+setLook();
+
+// =============================================================================
+// Device: chart data, serial link, motors, timings
+// =============================================================================
+let redrawQueued = false;
+function redraw() {
+  if (redrawQueued) return;
+  redrawQueued = true;
+  requestAnimationFrame(() => { redrawQueued = false; chart.update('none'); });
+}
+
+function flashRed() {
+  const el = $('flash');
+  el.classList.remove('on');
+  void el.offsetWidth; // restart the animation if it's already running
+  el.classList.add('on');
+}
+
+// ---- Sequence timings -------------------------------------------------------
+const TIMING_MAX_MS = 60000;
+const timingInputs = [...document.querySelectorAll('.timing-grid input')];
+let deviceTimings = null; // { key: ms } as last reported by the ESP, null if unknown
+
+// Box value as a valid integer ms, or null if empty/invalid.
+function boxValue(input) {
+  const s = input.value.trim();
+  if (!/^\d+$/.test(s)) return null;
+  const v = Number(s);
+  return v <= TIMING_MAX_MS ? v : null;
+}
+
+function refreshTimingUI() {
+  const state = $('timingState');
+  let allMatch = true;
+  timingInputs.forEach(input => {
+    input.classList.remove('match', 'differs');
+    if (!deviceTimings) return;
+    const same = boxValue(input) === deviceTimings[input.dataset.key];
+    input.classList.add(same ? 'match' : 'differs');
+    if (!same) allMatch = false;
+  });
+  if (!port) {
+    state.textContent = 'Not connected'; state.className = '';
+  } else if (!deviceTimings) {
+    state.textContent = 'Reading timings…'; state.className = '';
+  } else if (allMatch) {
+    state.textContent = 'Up to date'; state.className = 'ok';
+  } else {
+    state.textContent = 'Timing Changes Pending'; state.className = 'pending';
+  }
+  $('timingChange').disabled = !port || !deviceTimings;
+  $('timingReset').disabled = !port || !deviceTimings;
+  renderTimeline();
+}
+
+// ---- Sequence timeline ---------------------------------------------------------
+// Motor move durations (us). The ESP reports its own in an "M" line; until then
+// they're computed here with the same math and the firmware's constants as of
+// this page. KEEP IN STEP with src/main.cpp (Tuning section and moveTimeUs).
+const FW = {
+  fullSteps: 200, microsteps: 1, gear: 29, spoolGear: 1,
+  lidOpenDeg: 25, jogDeg: 5, pinionPauseDeg: 90, spoolReelDeg: 720,
+  stepUsStart: 4000, stepUsCruise: 750, lidStepUsCruise: 1500, spoolStepUsCruise: 1000, rampSteps: 60,
+};
+const DEFAULT_TIMINGS = { lid_step_pause: 25, lid_to_arm: 100, pinion_pause: 1000, arm_hold: 5000,
+  spool_to_lid: 250, lid_to_unspool: 250, cooldown: 1500 };
+
+function moveTimeUs(steps, cruiseUs) {
+  let us = 5;
+  for (let i = 0; i < steps; i++) {
+    const fromEdge = Math.min(i, steps - 1 - i);
+    us += fromEdge < FW.rampSteps ? FW.stepUsStart - Math.floor((FW.stepUsStart - cruiseUs) * fromEdge / FW.rampSteps) : cruiseUs;
+  }
+  return us;
+}
+function defaultMotion() {
+  const steps180 = Math.floor(FW.fullSteps * FW.microsteps * FW.gear / 2), steps360 = steps180 * 2;
+  const lidOpen = Math.floor(steps180 * FW.lidOpenDeg / 180), jog = Math.floor(steps180 * FW.jogDeg / 180);
+  const firstLeg = Math.floor(steps180 * FW.pinionPauseDeg / 180);
+  const spoolReel = Math.floor(FW.fullSteps * FW.microsteps * FW.spoolGear * FW.spoolReelDeg / 360);
+  const lid_open = [];
+  for (let rem = lidOpen; rem > 0;) { const c = Math.min(rem, jog); rem -= c; lid_open.push(moveTimeUs(c, FW.lidStepUsCruise)); }
+  return {
+    lid_open,
+    launch: moveTimeUs(firstLeg, FW.stepUsCruise),
+    reset: moveTimeUs(steps360 - firstLeg, FW.stepUsCruise),
+    spool_in: moveTimeUs(spoolReel, FW.spoolStepUsCruise),
+    lid_close: moveTimeUs(lidOpen, FW.lidStepUsCruise),
+    spool_out: moveTimeUs(spoolReel, FW.spoolStepUsCruise),
+  };
+}
+const DEFAULT_MOTION = defaultMotion();
+let deviceMotion = null;
+
+// "M,lid_open=us;us;...,launch=us,..."
+function handleMotion(fields) {
+  const m = {};
+  fields.forEach(f => {
+    const [k, v] = f.split('=');
+    if (!k || v === undefined) return;
+    m[k.trim()] = k.trim() === 'lid_open' ? v.split(';').map(Number) : Number(v);
+  });
+  deviceMotion = { ...DEFAULT_MOTION, ...m };
+  renderTimeline();
+}
+
+// The timeline follows the boxes as you type, so it previews a change before
+// it's sent; an empty or invalid box falls back to the ESP's (or default) value.
+function timelineTiming(key) {
+  const input = timingInputs.find(i => i.dataset.key === key);
+  const v = input ? boxValue(input) : null;
+  return v ?? deviceTimings?.[key] ?? DEFAULT_TIMINGS[key];
+}
+
+function sequenceSegments() {
+  const M = deviceMotion || DEFAULT_MOTION, T = timelineTiming, segs = [];
+  const pause = (key, label) => segs.push({ kind: 'pause', motor: null, label, ms: T(key) });
+  const move = (motor, kind, label, us) => segs.push({ kind, motor, label, ms: us / 1000 });
+  M.lid_open.forEach((us, i) => {
+    move('lid', 'fwd', `Lid opens (step ${i + 1} of ${M.lid_open.length})`, us);
+    if (i < M.lid_open.length - 1) pause('lid_step_pause', 'Lid step pause');
+  });
+  pause('lid_to_arm', 'Lid open → pinion');
+  move('pinion', 'fwd', 'Pinion launches the arm', M.launch);
+  pause('pinion_pause', 'Arm out → pinion reset');
+  move('pinion', 'fwd', 'Pinion resets', M.reset);
+  pause('arm_hold', 'Pinion reset → spool in');
+  move('spool', 'fwd', 'Spool reels the arm in', M.spool_in);
+  pause('spool_to_lid', 'Spool in → lid close');
+  move('lid', 'rev', 'Lid closes', M.lid_close);
+  pause('lid_to_unspool', 'Lid closed → spool out');
+  move('spool', 'rev', 'Spool lets the tether out', M.spool_out);
+  pause('cooldown', 'Cooldown');
+  let t = 0;
+  segs.forEach(s => { s.start = t; t += s.ms; });
+  return segs;
+}
+
+const fmtMs = ms => ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+let timelineSegs = [];
+
+function renderTimeline() {
+  const segs = timelineSegs = sequenceSegments();
+  const total = segs.reduce((a, s) => a + s.ms, 0);
+  const track = $('tlTrack');
+  track.replaceChildren(...segs.map((s, i) => {
+    const d = document.createElement('div');
+    d.className = `tl-seg tl-${s.kind}` + (s.motor ? ` tl-${s.motor}` : '');
+    d.style.flexGrow = Math.max(s.ms, 0.001);
+    d.dataset.i = i;
+    return d;
+  }));
+  track.setAttribute('aria-label', 'Sequence timeline: ' + segs.map(s => `${s.label} ${fmtMs(s.ms)}`).join(', '));
+  $('tlTotal').textContent = `Total ${fmtMs(total)}, cooldown included`;
+  $('tlSource').textContent = deviceMotion
+    ? 'Motor times reported by the connected ESP.'
+    : "Motor times from the firmware defaults; connect to use this ESP's own.";
+  // Axis ticks on a round step that gives at most ~8 labels.
+  const step = [0.25, 0.5, 1, 2, 5, 10, 20, 30, 60].find(s => total / 1000 / s <= 8) || 120;
+  const ticks = [];
+  for (let t = 0; t <= total / 1000 + 1e-9; t += step) ticks.push(t);
+  $('tlAxis').replaceChildren(...ticks.map(t => {
+    const sp = document.createElement('span');
+    sp.style.left = (t * 1000 / total * 100) + '%';
+    sp.textContent = `${+t.toFixed(2)} s`;
+    return sp;
+  }));
+  hideTip();
+}
+
+// Hover (or tap) a segment for what it is and how long it takes.
+function hideTip() {
+  $('tlTip').hidden = true;
+  document.querySelectorAll('.tl-seg.hot').forEach(e => e.classList.remove('hot'));
+}
+function showTip(e) {
+  const seg = e.target.closest('.tl-seg');
+  if (!seg) return hideTip();
+  const s = timelineSegs[seg.dataset.i], tip = $('tlTip'), box = tip.parentElement.getBoundingClientRect();
+  document.querySelectorAll('.tl-seg.hot').forEach(x => x !== seg && x.classList.remove('hot'));
+  seg.classList.add('hot');
+  const b = document.createElement('b');
+  b.textContent = s.label;
+  tip.replaceChildren(b, `${fmtMs(s.ms)}  ·  ${fmtMs(s.start)} → ${fmtMs(s.start + s.ms)}`);
+  tip.hidden = false;
+  const r = seg.getBoundingClientRect();
+  const x = Math.min(Math.max(e.clientX - box.left - tip.offsetWidth / 2, 0), box.width - tip.offsetWidth);
+  tip.style.left = x + 'px';
+  tip.style.top = (r.top - box.top - tip.offsetHeight - 8) + 'px';
+}
+$('tlTrack').addEventListener('pointermove', showTip);
+$('tlTrack').addEventListener('pointerdown', showTip);
+$('tlTrack').addEventListener('pointerleave', hideTip);
+
+function fillBoxesFromDevice(onlyEmpty) {
+  timingInputs.forEach(input => {
+    const v = deviceTimings[input.dataset.key];
+    if (v !== undefined && (!onlyEmpty || input.value.trim() === '')) input.value = v;
+  });
+}
+
+// "C,key=ms,key=ms,..."
+function handleTimings(fields) {
+  const t = {};
+  fields.forEach(f => {
+    const [k, v] = f.split('=');
+    if (k && v !== undefined) t[k.trim()] = Number(v);
+  });
+  const first = !deviceTimings;
+  deviceTimings = t;
+  if (first) fillBoxesFromDevice(true);
+  refreshTimingUI();
+}
+
+timingInputs.forEach(input => input.addEventListener('input', refreshTimingUI));
+renderTimeline(); // before any ESP is connected: defaults, then whatever is typed
+
+$('timingChange').onclick = async () => {
+  const pairs = [];
+  timingInputs.forEach(input => {
+    const v = boxValue(input);
+    if (v !== null) pairs.push(`${input.dataset.key}=${v}`);
+  });
+  if (!pairs.length) return;
+  await send('set_timings ' + pairs.join(','));
+  // The ESP now has what's in the (valid) boxes; it confirms with a "C" line,
+  // which re-marks anything it didn't accept.
+  pairs.forEach(p => { const [k, v] = p.split('='); deviceTimings[k] = Number(v); });
+  refreshTimingUI();
+};
+
+$('timingReset').onclick = () => {
+  fillBoxesFromDevice(false);
+  refreshTimingUI();
+};
+
+function handleLine(line) {
+  const fields = line.trim().split(',');
+  if (fields[0] === 'C') { handleTimings(fields.slice(1)); return; }
+  if (fields[0] === 'M') { handleMotion(fields.slice(1)); return; }
+  if (fields[0] === 'F') { machine.onDevice(fields.slice(1)); return; }
+  const [kind, t, n] = fields;
+  const point = { x: parseFloat(t), y: parseFloat(n) };
+  if (Number.isNaN(point.x) || Number.isNaN(point.y)) return; // ignore other log output
+  if (kind === 'T') {
+    flashRed();
+    $('status').textContent = `Too much candy taken: ${point.y.toFixed(1)} g at ${point.x.toFixed(1)} s`;
+    return;
+  }
+  if (kind === 'D') chart.data.datasets[0].data.push(point);
+  else if (kind === 'S') chart.data.datasets[1].data.push(point);
+  else return;
+  redraw();
+}
+
+async function readLoop() {
+  const decoder = new TextDecoderStream();
+  readableClosed = port.readable.pipeTo(decoder.writable).catch(() => {});
+  reader = decoder.readable.getReader();
+  let buf = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      lines.forEach(handleLine);
+    }
+  } catch (e) {
+    // Board unplugged or reset: release the port so it can be reconnected.
+    await disconnect();
+    $('status').textContent = 'Disconnected: ' + e.message;
+  }
+}
+
+async function send(cmd) {
+  if (writer) await writer.write(new TextEncoder().encode(cmd + '\n'));
+}
+
+function setConnected(connected) {
+  $('connect').disabled = connected;
+  $('disconnect').disabled = !connected;
+  $('start').disabled = !connected;
+  $('stop').disabled = true;
+  document.querySelectorAll('.motor').forEach(b => b.disabled = !connected);
+  if (!connected) deviceTimings = deviceMotion = null;
+  refreshTimingUI();
+  machine.onConnect(connected);
+}
+
+async function disconnect() {
+  if (!port) return;
+  const p = port;
+  port = null;
+  try { await send('stop'); } catch {}
+  try { await reader?.cancel(); } catch {}
+  await readableClosed;
+  try { writer?.releaseLock(); } catch {}
+  writer = reader = null;
+  try { await p.close(); } catch {}
+  setConnected(false);
+  $('status').textContent = 'Disconnected';
+}
+
+$('connect').onclick = async () => {
+  if (!('serial' in navigator)) { $('status').textContent = 'Web Serial not supported in this browser'; return; }
+  port = await navigator.serial.requestPort();
+  await port.open({ baudRate: 115200 });
+  writer = port.writable.getWriter();
+  readLoop();
+  setConnected(true);
+  $('status').textContent = 'Connected';
+  // Opening the port usually resets the ESP, which reports its timings once it
+  // has booted; ask again in case it didn't reset (or the first ask was lost).
+  send('get_timings');
+  send('get_state');
+  setTimeout(() => {
+    if (!port) return;
+    if (!deviceTimings) send('get_timings');
+    send('get_state'); // the first may have gone while the ESP was still booting
+  }, 2000);
+};
+
+$('disconnect').onclick = disconnect;
+
+document.querySelectorAll('.motor:not(.jog)').forEach(b => {
+  b.onclick = () => send(b.dataset.cmd);
+});
+
+// Adjust buttons: one nudge per press, repeating while held.
+const JOG_REPEAT_MS = 250;
+document.querySelectorAll('.jog').forEach(b => {
+  let timer;
+  const stop = () => clearInterval(timer);
+  b.onpointerdown = () => {
+    if (b.disabled) return;
+    send(b.dataset.cmd);
+    timer = setInterval(() => send(b.dataset.cmd), JOG_REPEAT_MS);
+  };
+  b.onpointerup = b.onpointerleave = b.onpointercancel = stop;
+});
+
+$('start').onclick = async () => {
+  chart.data.datasets.forEach(d => d.data = []);
+  chart.update('none');
+  await send('start');
+  $('start').disabled = true;
+  $('stop').disabled = false;
+  $('status').textContent = 'Sampling…';
+};
+
+$('stop').onclick = async () => {
+  await send('stop');
+  $('start').disabled = false;
+  $('stop').disabled = true;
+  $('status').textContent = 'Stopped';
+};
+
+// =============================================================================
+// Machine State: the sequence as a five-state machine over a side view of the
+// box. Disconnected it's a simulation; connected, Next/Play send step_* commands
+// and the animation follows the ESP's "F,<phase>" announcements (see main.cpp,
+// "Sequence phases"). Motor moves take the same times as the timeline (the
+// ESP's own once it reports them); the hand and the spring's snap are staged.
+//
+// How the launcher works, as drawn: the pinion only ever turns CCW and has teeth
+// on half its rim. At rest those teeth hold the rack drawn back against a
+// tension spring. Turning 90° drags the rack further back until the toothless
+// gap reaches it; the spring then snaps the rack forward, the rack's front tab
+// knocks the arm, and the arm slides on out along its rail. The other 270°
+// passes the gap and re-catches the rack, re-cocking it. Only the spool's tether
+// brings the arm back.
+// =============================================================================
+const machine = (() => {
+  const NS = 'http://www.w3.org/2000/svg';
+  const rad = d => d * Math.PI / 180;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const EASE = {
+    io: t => t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2,
+    out: t => 1 - (1 - t) ** 3,
+    in: t => t * t * t,
+  };
+
+  // Geometry, in SVG units. Mechanism frame: x along the rail toward the bowl.
+  const PIN_R = 26;                    // pinion pitch radius
+  const K0 = PIN_R * rad(90);          // rack drawn back at rest (cocked)
+  const KMAX = PIN_R * rad(180);       // drawn back when the gear gap arrives
+  const ARM_HOME = 150;                // arm's rear = rack's front tab when cocked
+  const E = 260;                       // how far the arm flies out
+  const CAM = { x: 110, y: 124, L: 60, r1: 14, r2: 6, closed: 7 }; // teardrop cam, angle in deg
+  const HINGE = { x: 48, y: 104 };
+  const DRUM = { x: -34, y: -22 };
+  const LID_DEG = FW.lidOpenDeg, SPOOL_DEG = FW.spoolReelDeg;
+  const BOWL_G = 310, CANDY_EACH = 6, FULL = 12, TRIGGER_G = 10;
+  const HOVER = { x: 742, y: 160 }, GRAB_Y = 224, AWAY_Y = -140;
+
+  const STATES = [
+    { name: 'Closed & unspooled', desc: "Start. Lid down on the cam; the pinion's teeth hold the rack cocked against the spring; the arm rests against the rack's tab; the tether is slack so the arm is free to fly. The load cell is watching the bowl." },
+    { name: 'Triggered', desc: 'A grab took more than 10 g: the reading spiked, rang, then settled that much lighter than the rest weight, so the ESP starts the sequence.' },
+    { name: 'Arm out', desc: 'Lid open 25°. The pinion has made its whole turn: the gear gap let the spring fire the rack (and the arm), then the teeth re-caught the rack and re-cocked it. The arm sits out on its rail with the tether pulled tight. On the machine the ESP waits arm_hold here before reeling; the animation skips that wait.' },
+    { name: 'Reeled in', desc: 'The spool turned 720° and dragged the arm home against the rack\'s tab. The lid is still open and the tether is tight.' },
+    { name: 'Lid closed', desc: 'The cam has turned back and the lid is down. The tether is still wound tight, which is why the next step lets it out.' },
+  ];
+  const EDGES = ['Hand takes > 10 g', 'Lid lifts + pinion fires', 'Spool reels arm in', 'Lid closes', 'Spool lets tether out'];
+
+  // Live parameters of the drawing.
+  const m = {
+    cam: 0, pin: 0, back: K0, ext: 0, spool: 0,
+    hx: HOVER.x, hy: AWAY_Y, hr: 0, hs: 0, held: 0, press: 0, ring: 0, burst: 0,
+    candies: FULL, rest: BOWL_G + CANDY_EACH * FULL, lcd: 'watching the bowl', alarm: false,
+  };
+  const home = () => Object.assign(m, { cam: 0, pin: 0, back: K0, ext: 0, spool: 0, hx: HOVER.x, hy: AWAY_Y, hr: 0, hs: 0,
+    held: 0, press: 0, ring: 0, burst: 0, lcd: 'watching the bowl', alarm: false });
+
+  // ---- static shapes -------------------------------------------------------
+  const pt = (a, r) => `${(r * Math.cos(rad(a))).toFixed(2)} ${(-r * Math.sin(rad(a))).toFixed(2)}`;
+  (function gear() { // teeth on math angles 0..180 (the top half at rest), smooth root circle elsewhere
+    const ro = 29.5, rr = 23, n = 7, pitch = 180 / n;
+    let d = `M${pt(0, rr)}`;
+    for (let k = 0; k < n; k++) {
+      const a = pitch * (k + .5);
+      d += ` L${pt(a - 9, rr)} L${pt(a - 4, ro)} L${pt(a + 4, ro)} L${pt(a + 9, rr)}`;
+    }
+    d += ` L${pt(180, rr)} A${rr} ${rr} 0 0 0 ${pt(270, rr)} A${rr} ${rr} 0 0 0 ${pt(360, rr)} Z`;
+    $('mGear').setAttribute('d', d);
+  })();
+  (function rack() { // bar behind the front tab, teeth underneath at the pinion's pitch
+    const len = 110, pitch = PIN_R * rad(180 / 7);
+    let d = `M${-len} 2 H0 V12`;
+    for (let x = 0; x - pitch > -len; x -= pitch) d += ` L${(x - pitch * .2).toFixed(1)} 12 L${(x - pitch * .4).toFixed(1)} 18 L${(x - pitch * .6).toFixed(1)} 18 L${(x - pitch * .8).toFixed(1)} 12 L${(x - pitch).toFixed(1)} 12`;
+    $('mRackBody').setAttribute('d', d + ` H${-len} Z`);
+  })();
+  (function cam() { // teardrop: hub circle + tip circle and their outer tangents, pointing along +x
+    const { L, r1, r2 } = CAM, s = (r1 - r2) / L, c = Math.sqrt(1 - s * s);
+    const f = v => v.toFixed(2);
+    $('mCamBody').setAttribute('d', `M${f(r1 * s)} ${f(-r1 * c)} L${f(L + r2 * s)} ${f(-r2 * c)} A${r2} ${r2} 0 0 1 ${f(L + r2 * s)} ${f(r2 * c)} L${f(r1 * s)} ${f(r1 * c)} A${r1} ${r1} 0 1 1 ${f(r1 * s)} ${f(-r1 * c)} Z`);
+  })();
+  const CANDY_AT = [[672, 236, -20], [694, 238, 15], [716, 236, -5], [738, 238, 25], [760, 236, -15], [782, 238, 10],
+    [806, 236, -25], [684, 226, 30], [708, 225, -10], [756, 224, 20], [732, 222, -30], [780, 226, 5]];
+  const CANDY_COL = ['#dc2626', '#16a34a', '#eab308', '#db2777', '#0891b2', '#65a30d'];
+  function candy(x, y, r, col, s = 1) {
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('transform', `translate(${x} ${y}) rotate(${r}) scale(${s})`);
+    g.innerHTML = `<path d="M-6 0 L-12 -5 L-12 5 Z M6 0 L12 -5 L12 5 Z" fill="${col}" stroke="rgba(0,0,0,.35)" stroke-width=".8"/>` +
+      `<ellipse rx="7.5" ry="5.5" fill="${col}" stroke="rgba(0,0,0,.35)" stroke-width=".8"/><ellipse cx="-2" cy="-2" rx="2.5" ry="1.4" fill="rgba(255,255,255,.55)"/>`;
+    return g;
+  }
+  const candyEls = CANDY_AT.map(([x, y, r], i) => $('mCandies').appendChild(candy(x, y, r, CANDY_COL[i % CANDY_COL.length])));
+  const heldEls = [[-8, 18, 20], [4, 21, -15], [12, 15, 40]].map(([x, y, r], i) => $('mHeld').appendChild(candy(x, y, r, CANDY_COL[(i + 4) % 6], .85)));
+  for (let k = 0; k < 8; k++) {
+    const a = k * 45, l = document.createElementNS(NS, 'line');
+    l.setAttribute('x1', 722 + 12 * Math.cos(rad(a))); l.setAttribute('y1', 170 - 12 * Math.sin(rad(a)));
+    l.setAttribute('x2', 722 + 24 * Math.cos(rad(a))); l.setAttribute('y2', 170 - 24 * Math.sin(rad(a)));
+    $('mBurst').appendChild(l);
+  }
+
+  // ---- derived geometry ------------------------------------------------------
+  // The lid rests on whatever is highest: the walls, or the cam's tip.
+  function lidAngle(cam) {
+    const th = rad(CAM.closed + cam), rise = Math.max(0, CAM.L * Math.sin(th) + CAM.r2 - CAM.r1);
+    return Math.atan2(rise, CAM.x + CAM.L * Math.cos(th) - HINGE.x) * 180 / Math.PI;
+  }
+  const rackBackAt = p => { // pinion turned p° CCW from rest -> how far the rack is drawn back
+    p = ((p % 360) + 360) % 360;
+    if (p < 90) return K0 + PIN_R * rad(p);          // teeth still on the rack
+    if (p >= 270) return PIN_R * rad(p - 270);       // teeth re-caught it
+    return 0;                                        // the gap: spring holds it forward
+  };
+  const drumR = () => 10 + 7 * m.spool;              // string piles up on the drum as it reels
+  function tether() {
+    const ax = DRUM.x, ay = DRUM.y - drumR(), bx = ARM_HOME + m.ext + 8, by = -16;
+    const d = Math.hypot(bx - ax, by - ay);
+    const d0 = Math.hypot(ARM_HOME + 8 - DRUM.x, -16 - (DRUM.y - 17));
+    const slack = Math.max(0, d0 + E * (1 - m.spool) - d - 2);
+    return { ax, ay, bx, by, d, slack };
+  }
+  const grams = now => BOWL_G + CANDY_EACH * m.candies + m.press + m.ring * Math.sin(now / 45) + 0.25 * Math.sin(now / 170);
+
+  // ---- drawing ----------------------------------------------------------------
+  const hist = [];
+  const HN = 60; // 6 s at the HX711's 10 Hz
+  function spring(x0, x1, y) {
+    const n = 12, lead = 6, w = (x1 - x0 - 2 * lead) / n;
+    let d = `M${x0.toFixed(1)} ${y} h${lead}`;
+    for (let i = 0; i < n; i++) d += ` L${(x0 + lead + w * (i + .5)).toFixed(1)} ${y + (i % 2 ? 5 : -5)}`;
+    return d + ` L${(x1 - lead).toFixed(1)} ${y} H${x1}`;
+  }
+  function render(now) {
+    const th = CAM.closed + m.cam;
+    $('mCam').setAttribute('transform', `translate(${CAM.x} ${CAM.y}) rotate(${-th})`);
+    $('mLid').setAttribute('transform', `rotate(${-lidAngle(m.cam)} ${HINGE.x} ${HINGE.y})`);
+    $('mPinion').setAttribute('transform', `translate(130 40) rotate(${-m.pin})`);
+    const front = ARM_HOME + K0 - m.back;
+    $('mRack').setAttribute('transform', `translate(${front} 0)`);
+    $('mSpring').setAttribute('d', spring(front, 296, 7));
+    $('mArm').setAttribute('transform', `translate(${ARM_HOME + m.ext} 0)`);
+    $('mDrum').setAttribute('r', drumR());
+    $('mSpokes').setAttribute('transform', `rotate(${-SPOOL_DEG * m.spool})`);
+    const t = tether(), h = Math.min(34, Math.sqrt(3 * t.d * t.slack / 8));
+    $('mString').setAttribute('d', `M${t.ax} ${t.ay} Q${(t.ax + t.bx) / 2} ${(t.ay + t.by) / 2 + 2 * h} ${t.bx} ${t.by}`);
+
+    const hand = $('mHand');
+    hand.setAttribute('display', m.hs ? 'inline' : 'none');
+    hand.setAttribute('transform', `translate(${m.hx} ${m.hy}) rotate(${m.hr})`);
+    heldEls.forEach((e, i) => e.setAttribute('display', i < m.held ? 'inline' : 'none'));
+    candyEls.forEach((e, i) => e.setAttribute('display', i < m.candies ? 'inline' : 'none'));
+    const b = $('mBurst');
+    b.setAttribute('opacity', m.burst.toFixed(2));
+    b.setAttribute('transform', `translate(722 170) scale(${(1.6 - .6 * m.burst).toFixed(2)}) translate(-722 -170)`);
+
+    // load cell: the free end dips with load (exaggerated), the gauge reddens with strain
+    const g = grams(now), dip = g / 500 * 3;
+    let top = '', bot = '';
+    for (let k = 0; k <= 8; k++) {
+      const s = k / 8, o = dip * s * s * (3 - s) / 2, x = 692 + 15 * k;
+      top += ` L${x} ${(314 + o).toFixed(2)}`;
+      bot = ` L${x} ${(326 + o).toFixed(2)}` + bot;
+    }
+    $('mBeam').setAttribute('d', `M668 314${top}${bot} L668 326 Z`);
+    $('mBowl').setAttribute('transform', `translate(0 ${dip.toFixed(2)})`);
+    const f = Math.min(1, Math.max(0, (g - 300) / 120));
+    $('mGauge').setAttribute('fill', `hsl(${Math.round(140 - 140 * f)} 70% 45%)`);
+    $('mGrams').textContent = `${g.toFixed(1)} g`;
+    $('mLcd').textContent = m.lcd;
+    $('mLcd').setAttribute('fill', m.alarm ? '#fca5a5' : '#94a3b8');
+    if (hist.length) {
+      const gs = hist.concat(g);
+      let lo = Math.min(...gs, m.rest - TRIGGER_G - 4), hi = Math.max(...gs, m.rest + 4);
+      const Y = v => 292 - (v - lo) / (hi - lo) * 40;
+      $('mSpark').setAttribute('d', gs.map((v, i) => `${i ? 'L' : 'M'}${(858 + i * 98 / HN).toFixed(1)} ${Y(v).toFixed(1)}`).join(''));
+      const ty = Y(m.rest - TRIGGER_G).toFixed(1);
+      $('mThresh').setAttribute('y1', ty); $('mThresh').setAttribute('y2', ty);
+    }
+
+    // readouts
+    const camState = m.cam < .3 ? 'closed' : m.cam > LID_DEG - .3 ? 'open' : busy ? 'moving' : 'part open';
+    $('msLid').textContent = `${m.cam.toFixed(0)}° of ${LID_DEG}° · lid ${camState}`;
+    const p = ((m.pin % 360) + 360) % 360, engaged = p < 90 || p >= 270;
+    $('msPin').textContent = `${Math.round(m.pin)}° CCW · ${engaged ? 'teeth on rack' : 'gap: rack free'}`;
+    $('msRack').textContent = m.back < 1 ? 'fired: spring relaxed' : m.back > K0 + 1 ? `drawing back (${Math.round(m.back / KMAX * 100)}%)` : Math.abs(m.back - K0) <= 1 ? 'cocked, spring loaded' : `re-cocking (${Math.round(m.back / KMAX * 100)}%)`;
+    $('msArm').textContent = m.ext < 1 ? 'home, on the rack' : m.ext > E - 1 ? 'fully out' : `${Math.round(m.ext / E * 100)}% out`;
+    $('msSpool').textContent = `${Math.round(SPOOL_DEG * m.spool)}° of ${SPOOL_DEG}° · tether ${t.slack > 3 ? 'slack' : 'taut'}`;
+    $('msLoad').textContent = `${g.toFixed(1)} g · rest ${m.rest.toFixed(1)} g`;
+  }
+
+  // ---- transitions ----------------------------------------------------------------
+  // A step: { label, dur (ms at 1x), wait?, begin?, tick?(e 0..1), end? }.
+  function tween(label, dur, to, ease = EASE.io, more = {}) {
+    let from;
+    return { label, dur, ...more,
+      begin() { from = {}; for (const k in to) from[k] = m[k]; more.begin?.(); },
+      tick(e) { const t = ease(e); for (const k in to) m[k] = lerp(from[k], to[k], t); more.tick?.(e); } };
+  }
+  const wait = (label, dur, more = {}) => ({ label, dur, wait: true, ...more });
+
+  // Cumulative lid angle after each opening increment, from the firmware's step math.
+  function lidTargets(n) {
+    const steps180 = Math.floor(FW.fullSteps * FW.microsteps * FW.gear / 2);
+    const total = Math.floor(steps180 * LID_DEG / 180), jog = Math.floor(steps180 * FW.jogDeg / 180);
+    const cum = [];
+    for (let rem = total, done = 0; rem > 0;) { const c = Math.min(rem, jog); rem -= c; done += c; cum.push(LID_DEG * done / total); }
+    return cum.length === n ? cum : Array.from({ length: n }, (_, k) => LID_DEG * (k + 1) / n);
+  }
+
+  function plan(from) {
+    // Live, the pauses are what the ESP will actually wait, not unsent box edits.
+    const M = deviceMotion || DEFAULT_MOTION, s = [];
+    const T = key => (live && deviceTimings?.[key] !== undefined ? deviceTimings[key] : timelineTiming(key));
+    if (from === 0) {
+      if (m.candies < 6) {
+        let c0;
+        s.push({ label: 'Bowl topped up', dur: 500, begin() { c0 = m.candies; },
+          tick(e) { m.candies = Math.round(lerp(c0, FULL, e)); }, end() { m.rest = BOWL_G + CANDY_EACH * FULL; } });
+      }
+      s.push(tween('A hand reaches into the bowl', 900, { hy: GRAB_Y }, EASE.io,
+        { begin() { m.hs = 1; m.hx = HOVER.x; m.hy = AWAY_Y; m.hr = 0; } }));
+      s.push(tween('Hand presses in and grabs 3 candies: the reading spikes', 700, { press: 45 }, EASE.out, {
+        begin() { m.lcd = 'spike: grab in progress'; },
+        tick(e) { if (e > .5 && !m.held) { m.held = 3; m.candies -= 3; } } }));
+      s.push(tween('Hand lifts out with the candy', 800, { hy: HOVER.y, press: 0, ring: 10 }, EASE.io,
+        { begin() { m.lcd = 'settling…'; } }));
+      s.push(tween('Reading rings, then settles lighter than before', 1500, { ring: 0 }, EASE.out, {
+        end() {
+          const taken = m.rest - (BOWL_G + CANDY_EACH * m.candies);
+          m.lcd = `${taken.toFixed(0)} g taken > ${TRIGGER_G} g`; m.alarm = true;
+        } }));
+    } else if (from === 1) {
+      const chunks = M.lid_open, cum = lidTargets(chunks.length);
+      chunks.forEach((us, k) => {
+        s.push(tween(`Lid motor turns the cam: lid lifts (step ${k + 1} of ${chunks.length})`, us / 1000, { cam: cum[k] }));
+        if (k < chunks.length - 1) s.push(wait('Pause between lid steps (lid_step_pause)', T('lid_step_pause')));
+      });
+      s.push(wait('Lid open → pinion (lid_to_arm)', T('lid_to_arm')));
+      s.push({ label: 'Pinion turns 90° CCW, dragging the rack back: spring stretches', dur: M.launch / 1000,
+        tick(e) { const t = EASE.io(e); m.pin = 90 * t; m.back = K0 + PIN_R * rad(90 * t); } });
+      s.push({ label: 'Gear gap reaches the rack: spring fires it, arm shoots out', dur: 650, tick(e) {
+        const ms = e * 650;
+        m.back = KMAX * (1 - EASE.in(Math.min(1, ms / 120)));
+        m.ext = ms <= 120 ? Math.max(0, K0 - m.back) : K0 + (E - K0) * EASE.out((ms - 120) / 530);
+        const h = ms > 460 ? EASE.out(Math.min(1, (ms - 460) / 190)) : 0;
+        m.hx = lerp(HOVER.x, 990, h); m.hy = lerp(HOVER.y, -170, h); m.hr = 30 * h;
+        m.burst = ms > 460 ? Math.max(0, 1 - (ms - 460) / 190) : 0;
+      }, end() { m.hs = 0; m.held = 0; m.burst = 0; m.lcd = 'sequence running'; } });
+      // The snap happens during the ESP's pinion_pause, not before it.
+      s.push(wait('Pinion paused (pinion_pause)', Math.max(0, T('pinion_pause') - 650)));
+      s.push({ label: 'Pinion finishes its turn: through the gap, then re-catches and re-cocks the rack', dur: M.reset / 1000,
+        tick(e) { m.pin = 90 + 270 * EASE.io(e); m.back = rackBackAt(m.pin); }, end() { m.pin = 0; m.back = K0; } });
+    } else if (from === 2) {
+      // The machine waits arm_hold before this; skipped here so Next reels at once.
+      s.push(tween(`Spool turns ${SPOOL_DEG}°, reeling the arm in by its tether`, M.spool_in / 1000, { spool: 1, ext: 0 }));
+    } else if (from === 3) {
+      s.push(wait('Arm in → lid close (spool_to_lid)', T('spool_to_lid')));
+      s.push(tween('Lid motor turns the cam back: lid closes', M.lid_close / 1000, { cam: 0 }));
+    } else {
+      s.push(wait('Lid closed → spool out (lid_to_unspool)', T('lid_to_unspool')));
+      s.push(tween('Spool lets the tether out, so the next shot is free', M.spool_out / 1000, { spool: 0 }));
+      s.push(wait("Cooldown, then the bowl's rest weight is re-read", T('cooldown'), {
+        end() { m.rest = BOWL_G + CANDY_EACH * m.candies; m.lcd = 'watching the bowl'; m.alarm = false; } }));
+    }
+    return s;
+  }
+
+  // ---- engine -------------------------------------------------------------------
+  // Connected ("live"), the ESP is the source of truth: Next sends the step's
+  // command, and the animation starts when the ESP announces the phase with
+  // "F,<phase>" -- the same announcement a real grab or the Run Sequence button
+  // produces, so the page follows those too. Disconnected, it's a simulation.
+  let state = 0, busy = false, cycling = false, queue = [], step = null, t0 = 0, total = 0, doneMs = 0;
+  let speed = 1, lastSample = 0, carry = null;
+  let live = false, devBusy = false, devQueue = [], note = '';
+  const STEP_CMD = [null, 'step_fire', 'step_reel', 'step_close', 'step_unspool']; // by the state it leaves
+  const PHASE_FROM = { fire: 1, reel: 2, close: 3, unspool: 4 };                   // phase -> state it leaves
+
+  // Jump straight to a state's resting pose (when the ESP is somewhere the page isn't).
+  function snap(i, grab) {
+    home();
+    if (i === 2) Object.assign(m, { cam: LID_DEG, ext: E });
+    if (i === 3) Object.assign(m, { cam: LID_DEG, spool: 1 });
+    if (i === 4) m.spool = 1;
+    if (i === 1 && grab) {
+      if (m.candies < 3) { m.candies = FULL; m.rest = BOWL_G + CANDY_EACH * FULL; }
+      Object.assign(m, { hs: 1, hx: HOVER.x, hy: HOVER.y, held: 3, alarm: true, lcd: `${3 * CANDY_EACH} g taken > ${TRIGGER_G} g` });
+      m.candies -= 3;
+    }
+    state = i;
+  }
+  function animate(from) {
+    if (state !== from) snap(from);
+    queue = plan(from);
+    total = queue.reduce((a, s) => a + s.dur, 0);
+    doneMs = 0;
+    carry = null;
+    busy = true;
+    note = '';
+    updateUI();
+  }
+  function go() {
+    if (busy || devBusy) return;
+    if (live && STEP_CMD[state]) {
+      devBusy = true;
+      note = '';
+      send(STEP_CMD[state]);
+      updateUI();
+      return;
+    }
+    animate(state); // Triggered moves no motor, so it's animated here even when live
+  }
+  function finish() {
+    busy = false;
+    state = (state + 1) % STATES.length;
+    pump();
+  }
+  // Whatever comes next once the current animation is over.
+  function pump() {
+    while (!busy && devQueue.length) {
+      const p = devQueue.shift();
+      if (p === 'trigger') { snap(1, true); continue; }
+      animate(PHASE_FROM[p]);
+      return;
+    }
+    if (!busy && cycling && !devBusy) {
+      if (state !== 0) { go(); return; }
+      cycling = false;
+    }
+    updateUI();
+  }
+  function reset() {
+    if (live) {
+      // The motors are real, so "reset" walks forward through the remaining
+      // steps to Closed instead of jumping there. Triggered has moved nothing.
+      if (busy || devBusy) return;
+      if (state <= 1) { snap(0); updateUI(); return; }
+      cycling = true;
+      go();
+      return;
+    }
+    queue = []; step = null; busy = false; cycling = false;
+    snap(0);
+    m.candies = FULL; m.rest = BOWL_G + CANDY_EACH * FULL;
+    hist.length = 0;
+    updateUI();
+  }
+
+  function onDevice(f) {
+    const k = f[0];
+    if (k === 'state') {
+      if (busy || devBusy || devQueue.length) return;
+      const lid = f.includes('lid=1'), reeled = f.includes('spool=1');
+      snap(lid ? (reeled ? 3 : 2) : (reeled ? 4 : 0));
+      updateUI();
+    } else if (k === 'done') {
+      devBusy = false;
+      pump();
+    } else if (k === 'refused') {
+      devBusy = false;
+      cycling = false;
+      note = 'ESP refused: ' + f.slice(1).join(',');
+      updateUI();
+    } else if (k === 'trigger' || k in PHASE_FROM) {
+      devBusy = true;
+      devQueue.push(k);
+      pump();
+    }
+  }
+  function setSpeed(v) {
+    const now = performance.now();
+    if (step) t0 = now - (now - t0) * speed / v; // keep the current step where it is
+    speed = v;
+    $('fsmSpeed').value = String(v);
+  }
+  function onConnect(c) {
+    live = c;
+    devBusy = false;
+    devQueue = [];
+    cycling = false;
+    note = '';
+    if (c) setSpeed(1); // the motors run at their own speed
+    $('fsmSpeed').disabled = c;
+    updateUI();
+  }
+
+  // Advances the state clock. Called from every frame AND from a timer, because
+  // Chrome all but stops animation frames for a tab you can't see -- and the
+  // state must keep pace with the motors even then. Each step starts at the
+  // previous one's scheduled end, not at the next call, so nothing drifts; several
+  // short steps can finish in one call.
+  function advance(now) {
+    while (busy) {
+      if (!step) { step = queue.shift(); step.begin?.(); t0 = carry ?? now; }
+      const dur = step.dur / speed, e = dur > 0 ? Math.min(1, (now - t0) / dur) : 1;
+      step.tick?.(e);
+      const left = (1 - e) * step.dur;
+      $('fsmAction').textContent = step.label + (step.wait && step.dur > 0 ? ` (${fmtMs(left)})` : '');
+      $('fsmBar').style.width = (total ? (doneMs + e * step.dur) / total * 100 : 100) + '%';
+      if (e < 1) break;
+      step.end?.();
+      doneMs += step.dur;
+      carry = t0 + dur;
+      step = null;
+      if (!queue.length) finish();
+    }
+  }
+  setInterval(() => advance(performance.now()), 50);
+
+  function loop(now) {
+    advance(now);
+    if (now - lastSample >= 100) {
+      lastSample = now;
+      if (!hist.length) for (let i = 0; i < HN; i++) hist.push(grams(now));
+      hist.push(grams(now));
+      while (hist.length > HN) hist.shift();
+    }
+    render(now);
+    requestAnimationFrame(loop);
+  }
+
+  // ---- UI ----------------------------------------------------------------------
+  const fsm = $('fsm'), nodeEls = [], edgeEls = [];
+  STATES.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.className = 'fsm-node';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.innerHTML = `<small>${i + 1}</small>`;
+    b.append(s.name);
+    b.onclick = () => { if (!busy && i === (state + 1) % STATES.length) go(); };
+    li.append(b);
+    const edge = document.createElement('li');
+    edge.className = 'fsm-edge';
+    edge.innerHTML = `<span class="arr" aria-hidden="true">${i === STATES.length - 1 ? '↺' : '→'}</span>`;
+    edge.append(EDGES[i] + (i === STATES.length - 1 ? ', back to 1' : ''));
+    fsm.append(li, edge);
+    nodeEls.push(li); edgeEls.push(edge);
+  });
+
+  function updateUI() {
+    const next = (state + 1) % STATES.length;
+    nodeEls.forEach((li, i) => {
+      li.className = 'fsm-node' + (i === state ? ' cur' : '') + (i === next ? ' next' : '');
+      const b = li.firstChild;
+      b.disabled = busy || devBusy || i !== next;
+      if (i === state) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+    });
+    const working = busy || devBusy;
+    edgeEls.forEach((e, i) => e.classList.toggle('active', working && i === state));
+    $('fsmNext').textContent = `Next: ${STATES[next].name}`;
+    $('fsmNext').disabled = working;
+    $('fsmCycle').disabled = working;
+    $('fsmReset').disabled = live && working;
+    $('fsmReset').textContent = live ? 'Return to closed' : 'Reset to closed';
+    if (!busy) {
+      $('fsmAction').textContent = note || (devBusy
+        ? (state === 2 ? 'ESP is holding the arm out (arm_hold)…' : 'Waiting for the ESP…')
+        : `In state ${state + 1}: ${STATES[state].name}. Next: ${EDGES[state].toLowerCase()}.`);
+      $('fsmBar').style.width = '0%';
+    }
+    $('fsmDesc').textContent = STATES[busy ? next : state].desc;
+    $('fsmMode').textContent = live
+      ? 'Live: the ESP is connected, so Next and Play move the real motors, and a real grab or Run Sequence plays here as it happens.'
+      : "Simulation: nothing is sent to the board. Connect the ESP and Next moves the real motors.";
+  }
+
+  $('fsmNext').onclick = go;
+  $('fsmCycle').onclick = () => { cycling = true; go(); };
+  $('fsmReset').onclick = reset;
+  $('fsmSpeed').onchange = e => setSpeed(Number(e.target.value));
+
+  updateUI();
+  requestAnimationFrame(loop);
+  return { onDevice, onConnect };
+})();
+</script>
+</body>
+</html>
