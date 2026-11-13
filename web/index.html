@@ -863,7 +863,7 @@ function refreshTimingUI() {
 // this page. KEEP IN STEP with src/main.cpp (Tuning section and moveTimeUs).
 const FW = {
   fullSteps: 200, microsteps: 1, gear: 29, spoolGear: 1,
-  lidOpenDeg: 25, jogDeg: 5, pinionPauseDeg: 90, pinionStepDeg: 5, spoolReelDeg: 1440, spoolBackDeg: 90,
+  lidOpenDeg: 25, jogDeg: 5, pinionPauseDeg: 90, pinionStepDeg: 5, spoolReelDeg: 2880, spoolBackDeg: 90,
   stepUsStart: 4000, stepUsCruise: 750, lidStepUsCruise: 1500, spoolStepUsCruise: 1000, rampSteps: 60,
 };
 const DEFAULT_TIMINGS = { lid_step_pause: 25, pin_step_pause: 25, lid_to_arm: 100, pinion_pause: 1000, arm_hold: 5000,
@@ -1216,7 +1216,7 @@ const machine = (() => {
     { name: 'Closed & unspooled', desc: "Start. Lid down on the cam; the pinion's teeth hold the rack cocked against the spring; the arm rests against the rack's tab; the tether is slack so the arm is free to fly. The load cell is watching the bowl." },
     { name: 'Triggered', desc: 'A grab took more than 10 g: the reading spiked, rang, then settled that much lighter than the rest weight, so the ESP starts the sequence.' },
     { name: 'Arm out', desc: 'Lid open 25°. The pinion has made its whole turn: the gear gap let the spring fire the rack (and the arm), then the teeth re-caught the rack and re-cocked it. The arm sits out on its rail with the tether pulled tight. On the machine the ESP waits arm_hold here before reeling; the animation skips that wait.' },
-    { name: 'Reeled in', desc: 'The spool turned 1440° to drag the arm home against the rack\'s tab, then backed off 90° to ease the tether. The lid is still open.' },
+    { name: 'Reeled in', desc: 'The spool turned 2880° to drag the arm home against the rack\'s tab, then backed off 90° to ease the tether. The lid is still open.' },
     { name: 'Lid closed', desc: 'The cam has turned back and the lid is down. The tether is still wound tight, which is why the next step lets it out.' },
   ];
   const EDGES = ['Hand takes > 10 g', 'Lid lifts + pinion fires', 'Spool reels arm in', 'Lid closes', 'Spool lets tether out'];

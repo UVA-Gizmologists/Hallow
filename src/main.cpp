@@ -66,7 +66,7 @@ constexpr long PINION_STEP_STEPS = STEPS_180 * PINION_STEP_DEGREES / 180;
 // must turn to pull the arm fully home.
 constexpr int SPOOL_GEAR_RATIO = 1;
 constexpr long SPOOL_STEPS_360 = (long)FULL_STEPS_PER_REV * MICROSTEPS * SPOOL_GEAR_RATIO;
-constexpr long SPOOL_REEL_DEGREES = 1440;
+constexpr long SPOOL_REEL_DEGREES = 2880;
 constexpr long SPOOL_REEL_STEPS = SPOOL_STEPS_360 * SPOOL_REEL_DEGREES / 360;
 // After reeling in, the spool reverses this much to take the tension off the tether.
 constexpr long SPOOL_BACKOFF_DEGREES = 90;
