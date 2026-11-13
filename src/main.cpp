@@ -66,8 +66,11 @@ constexpr long PINION_STEP_STEPS = STEPS_180 * PINION_STEP_DEGREES / 180;
 // must turn to pull the arm fully home.
 constexpr int SPOOL_GEAR_RATIO = 1;
 constexpr long SPOOL_STEPS_360 = (long)FULL_STEPS_PER_REV * MICROSTEPS * SPOOL_GEAR_RATIO;
-constexpr long SPOOL_REEL_DEGREES = 720;
+constexpr long SPOOL_REEL_DEGREES = 1440;
 constexpr long SPOOL_REEL_STEPS = SPOOL_STEPS_360 * SPOOL_REEL_DEGREES / 360;
+// After reeling in, the spool reverses this much to take the tension off the tether.
+constexpr long SPOOL_BACKOFF_DEGREES = 90;
+constexpr long SPOOL_BACKOFF_STEPS = SPOOL_STEPS_360 * SPOOL_BACKOFF_DEGREES / 360;
 // The spool turns many times per launch, so its adjust buttons move further
 // than the lid/pinion's 5 degrees. Keep the web page's button labels in step.
 constexpr int SPOOL_JOG_DEGREES = 10;
@@ -119,7 +122,7 @@ int windowIdx = 0;
 //        "reset_lid"               (back to start position)
 //        "run_sequence"            (run the full candy-taken sequence now)
 //        "spin_arm"                (one full 360 degree turn forward, ends where it started)
-//        "spool_in"                (reel the arm in, to SPOOL_REEL_DEGREES from start)
+//        "spool_in"                (reel the arm in SPOOL_REEL_DEGREES, then back off SPOOL_BACKOFF_DEGREES)
 //        "spool_out"               (back to the spool's start position)
 //        "jog_lid_fwd" / "jog_lid_back" / "jog_arm_fwd" / "jog_arm_back"
 //        "jog_spool_fwd" / "jog_spool_back"   (SPOOL_JOG_DEGREES, fwd = reel in)
@@ -205,7 +208,10 @@ void spinArm() {
 }
 
 void moveSpool(long steps) { moveBy(PIN_SPOOL_STEP, PIN_SPOOL_DIR, SPOOL_IN_DIR, spoolPos, steps, SPOOL_STEP_US_CRUISE); }
-void spoolIn() { moveSpool(SPOOL_REEL_STEPS - spoolPos); }
+void spoolIn() {
+  moveSpool(SPOOL_REEL_STEPS - spoolPos);
+  moveSpool(-SPOOL_BACKOFF_STEPS);
+}
 void spoolOut() { moveSpool(-spoolPos); }
 
 // Anything away from its start position needs the drivers to keep holding it.
@@ -357,7 +363,7 @@ void printIncrements(long steps, long increment, unsigned cruiseUs) {
   }
 }
 
-// "M,lid_open=<us>;<us>;...,launch=<us>;...,reset=<us>;...,spool_in=<us>,lid_close=<us>,spool_out=<us>"
+// "M,lid_open=<us>;<us>;...,launch=<us>;...,reset=<us>;...,spool_in=<us>,spool_back=<us>,lid_close=<us>,spool_out=<us>"
 // Motor move durations for the sequence, starting from home. lid_open, launch and
 // reset list each increment (lid_step_pause / pin_step_pause sit between them).
 void reportMotion() {
@@ -368,6 +374,7 @@ void reportMotion() {
   Serial.print(",reset=");
   printIncrements(STEPS_360 - PINION_FIRST_LEG, PINION_STEP_STEPS, STEP_US_CRUISE);
   Serial.printf(",spool_in=%lu", moveTimeUs(SPOOL_REEL_STEPS, SPOOL_STEP_US_CRUISE));
+  Serial.printf(",spool_back=%lu", moveTimeUs(SPOOL_BACKOFF_STEPS, SPOOL_STEP_US_CRUISE));
   Serial.printf(",lid_close=%lu", moveTimeUs(LID_OPEN_STEPS, LID_STEP_US_CRUISE));
   Serial.printf(",spool_out=%lu\n", moveTimeUs(SPOOL_REEL_STEPS, SPOOL_STEP_US_CRUISE));
 }

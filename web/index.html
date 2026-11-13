@@ -863,7 +863,7 @@ function refreshTimingUI() {
 // this page. KEEP IN STEP with src/main.cpp (Tuning section and moveTimeUs).
 const FW = {
   fullSteps: 200, microsteps: 1, gear: 29, spoolGear: 1,
-  lidOpenDeg: 25, jogDeg: 5, pinionPauseDeg: 90, pinionStepDeg: 5, spoolReelDeg: 720,
+  lidOpenDeg: 25, jogDeg: 5, pinionPauseDeg: 90, pinionStepDeg: 5, spoolReelDeg: 1440, spoolBackDeg: 90,
   stepUsStart: 4000, stepUsCruise: 750, lidStepUsCruise: 1500, spoolStepUsCruise: 1000, rampSteps: 60,
 };
 const DEFAULT_TIMINGS = { lid_step_pause: 25, pin_step_pause: 25, lid_to_arm: 100, pinion_pause: 1000, arm_hold: 5000,
@@ -882,6 +882,7 @@ function defaultMotion() {
   const lidOpen = Math.floor(steps180 * FW.lidOpenDeg / 180), jog = Math.floor(steps180 * FW.jogDeg / 180);
   const firstLeg = Math.floor(steps180 * FW.pinionPauseDeg / 180), pinJog = Math.floor(steps180 * FW.pinionStepDeg / 180);
   const spoolReel = Math.floor(FW.fullSteps * FW.microsteps * FW.spoolGear * FW.spoolReelDeg / 360);
+  const spoolBack = Math.floor(FW.fullSteps * FW.microsteps * FW.spoolGear * FW.spoolBackDeg / 360);
   const increments = (steps, inc, cruise) => {
     const a = [];
     for (let rem = steps; rem > 0;) { const c = Math.min(rem, inc); rem -= c; a.push(moveTimeUs(c, cruise)); }
@@ -892,8 +893,9 @@ function defaultMotion() {
     launch: increments(firstLeg, pinJog, FW.stepUsCruise),
     reset: increments(steps360 - firstLeg, pinJog, FW.stepUsCruise),
     spool_in: moveTimeUs(spoolReel, FW.spoolStepUsCruise),
+    spool_back: moveTimeUs(spoolBack, FW.spoolStepUsCruise),
     lid_close: moveTimeUs(lidOpen, FW.lidStepUsCruise),
-    spool_out: moveTimeUs(spoolReel, FW.spoolStepUsCruise),
+    spool_out: moveTimeUs(spoolReel - spoolBack, FW.spoolStepUsCruise),
   };
 }
 const DEFAULT_MOTION = defaultMotion();
@@ -939,6 +941,7 @@ function sequenceSegments() {
   move('pinion', 'fwd', `Pinion resets (${M.reset.length} steps, pauses included)`, leg(M.reset));
   pause('arm_hold', 'Pinion reset → spool in');
   move('spool', 'fwd', 'Spool reels the arm in', M.spool_in);
+  move('spool', 'rev', 'Spool backs off to ease the tether', M.spool_back);
   pause('spool_to_lid', 'Spool in → lid close');
   move('lid', 'rev', 'Lid closes', M.lid_close);
   pause('lid_to_unspool', 'Lid closed → spool out');
@@ -1205,6 +1208,7 @@ const machine = (() => {
   const HINGE = { x: 48, y: 104 };
   const DRUM = { x: -34, y: -22 };
   const LID_DEG = FW.lidOpenDeg, SPOOL_DEG = FW.spoolReelDeg;
+  const SPOOL_HOLD = 1 - FW.spoolBackDeg / SPOOL_DEG; // reeled in, then backed off
   const BOWL_G = 310, CANDY_EACH = 6, FULL = 12, TRIGGER_G = 10;
   const HOVER = { x: 742, y: 160 }, GRAB_Y = 224, AWAY_Y = -140;
 
@@ -1212,7 +1216,7 @@ const machine = (() => {
     { name: 'Closed & unspooled', desc: "Start. Lid down on the cam; the pinion's teeth hold the rack cocked against the spring; the arm rests against the rack's tab; the tether is slack so the arm is free to fly. The load cell is watching the bowl." },
     { name: 'Triggered', desc: 'A grab took more than 10 g: the reading spiked, rang, then settled that much lighter than the rest weight, so the ESP starts the sequence.' },
     { name: 'Arm out', desc: 'Lid open 25°. The pinion has made its whole turn: the gear gap let the spring fire the rack (and the arm), then the teeth re-caught the rack and re-cocked it. The arm sits out on its rail with the tether pulled tight. On the machine the ESP waits arm_hold here before reeling; the animation skips that wait.' },
-    { name: 'Reeled in', desc: 'The spool turned 720° and dragged the arm home against the rack\'s tab. The lid is still open and the tether is tight.' },
+    { name: 'Reeled in', desc: 'The spool turned 1440° to drag the arm home against the rack\'s tab, then backed off 90° to ease the tether. The lid is still open.' },
     { name: 'Lid closed', desc: 'The cam has turned back and the lid is down. The tether is still wound tight, which is why the next step lets it out.' },
   ];
   const EDGES = ['Hand takes > 10 g', 'Lid lifts + pinion fires', 'Spool reels arm in', 'Lid closes', 'Spool lets tether out'];
@@ -1436,6 +1440,7 @@ const machine = (() => {
     } else if (from === 2) {
       // The machine waits arm_hold before this; skipped here so Next reels at once.
       s.push(tween(`Spool turns ${SPOOL_DEG}°, reeling the arm in by its tether`, M.spool_in / 1000, { spool: 1, ext: 0 }));
+      s.push(tween(`Spool backs off ${FW.spoolBackDeg}° to ease the tether`, M.spool_back / 1000, { spool: SPOOL_HOLD }));
     } else if (from === 3) {
       s.push(wait('Arm in → lid close (spool_to_lid)', T('spool_to_lid')));
       s.push(tween('Lid motor turns the cam back: lid closes', M.lid_close / 1000, { cam: 0 }));
@@ -1463,8 +1468,8 @@ const machine = (() => {
   function snap(i, grab) {
     home();
     if (i === 2) Object.assign(m, { cam: LID_DEG, ext: E });
-    if (i === 3) Object.assign(m, { cam: LID_DEG, spool: 1 });
-    if (i === 4) m.spool = 1;
+    if (i === 3) Object.assign(m, { cam: LID_DEG, spool: SPOOL_HOLD });
+    if (i === 4) m.spool = SPOOL_HOLD;
     if (i === 1 && grab) {
       if (m.candies < 3) { m.candies = FULL; m.rest = BOWL_G + CANDY_EACH * FULL; }
       Object.assign(m, { hs: 1, hx: HOVER.x, hy: HOVER.y, held: 3, alarm: true, lcd: `${3 * CANDY_EACH} g taken > ${TRIGGER_G} g` });
