@@ -406,6 +406,7 @@
       <h2>Sequence Timings</h2>
       <div class="timing-grid">
         <label>Lid step pause (ms)<input type="number" min="0" max="60000" step="1" data-key="lid_step_pause"></label>
+        <label>Pinion step pause (ms)<input type="number" min="0" max="60000" step="1" data-key="pin_step_pause"></label>
         <label>Lid open → pinion (ms)<input type="number" min="0" max="60000" step="1" data-key="lid_to_arm"></label>
         <label>Arm out → pinion reset (ms)<input type="number" min="0" max="60000" step="1" data-key="pinion_pause"></label>
         <label>Pinion reset → spool in (ms)<input type="number" min="0" max="60000" step="1" data-key="arm_hold"></label>
@@ -862,10 +863,10 @@ function refreshTimingUI() {
 // this page. KEEP IN STEP with src/main.cpp (Tuning section and moveTimeUs).
 const FW = {
   fullSteps: 200, microsteps: 1, gear: 29, spoolGear: 1,
-  lidOpenDeg: 25, jogDeg: 5, pinionPauseDeg: 90, spoolReelDeg: 720,
+  lidOpenDeg: 25, jogDeg: 5, pinionPauseDeg: 90, pinionStepDeg: 5, spoolReelDeg: 720,
   stepUsStart: 4000, stepUsCruise: 750, lidStepUsCruise: 1500, spoolStepUsCruise: 1000, rampSteps: 60,
 };
-const DEFAULT_TIMINGS = { lid_step_pause: 25, lid_to_arm: 100, pinion_pause: 1000, arm_hold: 5000,
+const DEFAULT_TIMINGS = { lid_step_pause: 25, pin_step_pause: 25, lid_to_arm: 100, pinion_pause: 1000, arm_hold: 5000,
   spool_to_lid: 250, lid_to_unspool: 250, cooldown: 1500 };
 
 function moveTimeUs(steps, cruiseUs) {
@@ -879,14 +880,17 @@ function moveTimeUs(steps, cruiseUs) {
 function defaultMotion() {
   const steps180 = Math.floor(FW.fullSteps * FW.microsteps * FW.gear / 2), steps360 = steps180 * 2;
   const lidOpen = Math.floor(steps180 * FW.lidOpenDeg / 180), jog = Math.floor(steps180 * FW.jogDeg / 180);
-  const firstLeg = Math.floor(steps180 * FW.pinionPauseDeg / 180);
+  const firstLeg = Math.floor(steps180 * FW.pinionPauseDeg / 180), pinJog = Math.floor(steps180 * FW.pinionStepDeg / 180);
   const spoolReel = Math.floor(FW.fullSteps * FW.microsteps * FW.spoolGear * FW.spoolReelDeg / 360);
-  const lid_open = [];
-  for (let rem = lidOpen; rem > 0;) { const c = Math.min(rem, jog); rem -= c; lid_open.push(moveTimeUs(c, FW.lidStepUsCruise)); }
+  const increments = (steps, inc, cruise) => {
+    const a = [];
+    for (let rem = steps; rem > 0;) { const c = Math.min(rem, inc); rem -= c; a.push(moveTimeUs(c, cruise)); }
+    return a;
+  };
   return {
-    lid_open,
-    launch: moveTimeUs(firstLeg, FW.stepUsCruise),
-    reset: moveTimeUs(steps360 - firstLeg, FW.stepUsCruise),
+    lid_open: increments(lidOpen, jog, FW.lidStepUsCruise),
+    launch: increments(firstLeg, pinJog, FW.stepUsCruise),
+    reset: increments(steps360 - firstLeg, pinJog, FW.stepUsCruise),
     spool_in: moveTimeUs(spoolReel, FW.spoolStepUsCruise),
     lid_close: moveTimeUs(lidOpen, FW.lidStepUsCruise),
     spool_out: moveTimeUs(spoolReel, FW.spoolStepUsCruise),
@@ -895,13 +899,16 @@ function defaultMotion() {
 const DEFAULT_MOTION = defaultMotion();
 let deviceMotion = null;
 
-// "M,lid_open=us;us;...,launch=us,..."
+// "M,lid_open=us;us;...,launch=us;us;...,reset=us;us;...,spool_in=us,..."
+// The incremental moves are lists (firmware before pinion increments sent
+// launch/reset as one number, which becomes a one-item list).
+const MOTION_LISTS = ['lid_open', 'launch', 'reset'];
 function handleMotion(fields) {
   const m = {};
   fields.forEach(f => {
     const [k, v] = f.split('=');
     if (!k || v === undefined) return;
-    m[k.trim()] = k.trim() === 'lid_open' ? v.split(';').map(Number) : Number(v);
+    m[k.trim()] = MOTION_LISTS.includes(k.trim()) ? v.split(';').map(Number) : Number(v);
   });
   deviceMotion = { ...DEFAULT_MOTION, ...m };
   renderTimeline();
@@ -924,9 +931,12 @@ function sequenceSegments() {
     if (i < M.lid_open.length - 1) pause('lid_step_pause', 'Lid step pause');
   });
   pause('lid_to_arm', 'Lid open → pinion');
-  move('pinion', 'fwd', 'Pinion launches the arm', M.launch);
+  // The pinion's increments are many and short, so each leg is one segment
+  // with its pin_step_pauses folded in.
+  const leg = list => list.reduce((a, us) => a + us, 0) + (list.length - 1) * T('pin_step_pause') * 1000;
+  move('pinion', 'fwd', `Pinion launches the arm (${M.launch.length} steps, pauses included)`, leg(M.launch));
   pause('pinion_pause', 'Arm out → pinion reset');
-  move('pinion', 'fwd', 'Pinion resets', M.reset);
+  move('pinion', 'fwd', `Pinion resets (${M.reset.length} steps, pauses included)`, leg(M.reset));
   pause('arm_hold', 'Pinion reset → spool in');
   move('spool', 'fwd', 'Spool reels the arm in', M.spool_in);
   pause('spool_to_lid', 'Spool in → lid close');
@@ -1339,7 +1349,7 @@ const machine = (() => {
     // readouts
     const camState = m.cam < .3 ? 'closed' : m.cam > LID_DEG - .3 ? 'open' : busy ? 'moving' : 'part open';
     $('msLid').textContent = `${m.cam.toFixed(0)}° of ${LID_DEG}° · lid ${camState}`;
-    const p = ((m.pin % 360) + 360) % 360, engaged = p < 90 || p >= 270;
+    const engaged = m.back > 0.5; // the teeth are on the rack whenever they hold it back
     $('msPin').textContent = `${Math.round(m.pin)}° CCW · ${engaged ? 'teeth on rack' : 'gap: rack free'}`;
     $('msRack').textContent = m.back < 1 ? 'fired: spring relaxed' : m.back > K0 + 1 ? `drawing back (${Math.round(m.back / KMAX * 100)}%)` : Math.abs(m.back - K0) <= 1 ? 'cocked, spring loaded' : `re-cocking (${Math.round(m.back / KMAX * 100)}%)`;
     $('msArm').textContent = m.ext < 1 ? 'home, on the rack' : m.ext > E - 1 ? 'fully out' : `${Math.round(m.ext / E * 100)}% out`;
@@ -1357,14 +1367,20 @@ const machine = (() => {
   }
   const wait = (label, dur, more = {}) => ({ label, dur, wait: true, ...more });
 
-  // Cumulative lid angle after each opening increment, from the firmware's step math.
-  function lidTargets(n) {
-    const steps180 = Math.floor(FW.fullSteps * FW.microsteps * FW.gear / 2);
-    const total = Math.floor(steps180 * LID_DEG / 180), jog = Math.floor(steps180 * FW.jogDeg / 180);
-    const cum = [];
-    for (let rem = total, done = 0; rem > 0;) { const c = Math.min(rem, jog); rem -= c; done += c; cum.push(LID_DEG * done / total); }
-    return cum.length === n ? cum : Array.from({ length: n }, (_, k) => LID_DEG * (k + 1) / n);
+  // Cumulative angle after each increment of a move of totalDeg made in incDeg
+  // increments, from the firmware's step math. n is how many increments the
+  // ESP reported; if that disagrees, split evenly.
+  const STEPS180 = Math.floor(FW.fullSteps * FW.microsteps * FW.gear / 2);
+  function incrementTargets(totalDeg, incDeg, n) {
+    const total = Math.floor(STEPS180 * totalDeg / 180), inc = Math.floor(STEPS180 * incDeg / 180), cum = [];
+    for (let rem = total, done = 0; rem > 0;) { const c = Math.min(rem, inc); rem -= c; done += c; cum.push(totalDeg * done / total); }
+    return cum.length === n ? cum : Array.from({ length: n }, (_, k) => totalDeg * (k + 1) / n);
   }
+  // One pinion increment: turns from a to b degrees; the rack follows the teeth.
+  const pinMove = (label, us, a, b) => ({ label, dur: us / 1000, tick(e) {
+    m.pin = lerp(a, b, EASE.io(e));
+    m.back = m.pin <= 90 ? K0 + PIN_R * rad(m.pin) : rackBackAt(m.pin); // launch leg holds on until the snap
+  } });
 
   function plan(from) {
     // Live, the pauses are what the ESP will actually wait, not unsent box edits.
@@ -1389,14 +1405,17 @@ const machine = (() => {
           m.lcd = `${taken.toFixed(0)} g taken > ${TRIGGER_G} g`; m.alarm = true;
         } }));
     } else if (from === 1) {
-      const chunks = M.lid_open, cum = lidTargets(chunks.length);
+      const chunks = M.lid_open, cum = incrementTargets(LID_DEG, FW.jogDeg, chunks.length);
       chunks.forEach((us, k) => {
         s.push(tween(`Lid motor turns the cam: lid lifts (step ${k + 1} of ${chunks.length})`, us / 1000, { cam: cum[k] }));
         if (k < chunks.length - 1) s.push(wait('Pause between lid steps (lid_step_pause)', T('lid_step_pause')));
       });
       s.push(wait('Lid open → pinion (lid_to_arm)', T('lid_to_arm')));
-      s.push({ label: 'Pinion turns 90° CCW, dragging the rack back: spring stretches', dur: M.launch / 1000,
-        tick(e) { const t = EASE.io(e); m.pin = 90 * t; m.back = K0 + PIN_R * rad(90 * t); } });
+      const launch = M.launch, lc = incrementTargets(90, FW.pinionStepDeg, launch.length);
+      launch.forEach((us, k) => {
+        s.push(pinMove(`Pinion turns CCW, dragging the rack back: spring stretches (step ${k + 1} of ${launch.length})`, us, k ? lc[k - 1] : 0, lc[k]));
+        if (k < launch.length - 1) s.push(wait('Pause between pinion steps (pin_step_pause)', T('pin_step_pause')));
+      });
       s.push({ label: 'Gear gap reaches the rack: spring fires it, arm shoots out', dur: 650, tick(e) {
         const ms = e * 650;
         m.back = KMAX * (1 - EASE.in(Math.min(1, ms / 120)));
@@ -1407,8 +1426,13 @@ const machine = (() => {
       }, end() { m.hs = 0; m.held = 0; m.burst = 0; m.lcd = 'sequence running'; } });
       // The snap happens during the ESP's pinion_pause, not before it.
       s.push(wait('Pinion paused (pinion_pause)', Math.max(0, T('pinion_pause') - 650)));
-      s.push({ label: 'Pinion finishes its turn: through the gap, then re-catches and re-cocks the rack', dur: M.reset / 1000,
-        tick(e) { m.pin = 90 + 270 * EASE.io(e); m.back = rackBackAt(m.pin); }, end() { m.pin = 0; m.back = K0; } });
+      const reset = M.reset, rc = incrementTargets(270, FW.pinionStepDeg, reset.length).map(d => 90 + d);
+      reset.forEach((us, k) => {
+        const p = rc[k] < 270 ? 'through the gap' : 're-catching and re-cocking the rack';
+        s.push(pinMove(`Pinion finishes its turn, ${p} (step ${k + 1} of ${reset.length})`, us, k ? rc[k - 1] : 90, rc[k]));
+        if (k < reset.length - 1) s.push(wait('Pause between pinion steps (pin_step_pause)', T('pin_step_pause')));
+      });
+      s.push({ label: 'Pinion back at its start', dur: 0, end() { m.pin = 0; m.back = K0; } });
     } else if (from === 2) {
       // The machine waits arm_hold before this; skipped here so Next reels at once.
       s.push(tween(`Spool turns ${SPOOL_DEG}°, reeling the arm in by its tether`, M.spool_in / 1000, { spool: 1, ext: 0 }));

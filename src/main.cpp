@@ -54,6 +54,10 @@ constexpr float REST_TRACK_RATE = 0.02f;    // slow drift tracking while idle
 // The pinion's full turn stops partway (pinion_pause timing), then finishes the turn.
 // The first leg launches the arm; the rest of the turn resets the pinion.
 constexpr int PINION_PAUSE_DEGREES = 90;
+// Like the lid, the pinion turns in increments with a pause between each
+// (timing "pin_step_pause"): one long move stalls against the spring.
+constexpr int PINION_STEP_DEGREES = 5;
+constexpr long PINION_STEP_STEPS = STEPS_180 * PINION_STEP_DEGREES / 180;
 
 // Spool: reels the launched arm back in by its tether, then lets the same length
 // back out once the lid is shut, so the tether is slack for the next launch.
@@ -81,6 +85,7 @@ struct Timing {
 };
 Timing timings[] = {
   {"lid_step_pause", 25, 25},     // pause between lid-opening increments
+  {"pin_step_pause", 25, 25},     // pause between pinion increments (NVS keys max 15 chars)
   {"lid_to_arm", 100, 100},       // lid open -> pinion starts
   {"pinion_pause", 1000, 1000},   // pause partway through the pinion turn
   {"arm_hold", 5000, 5000},       // pinion reset -> spool reels the arm in
@@ -90,7 +95,7 @@ Timing timings[] = {
 };
 constexpr int NUM_TIMINGS = sizeof(timings) / sizeof(timings[0]);
 constexpr unsigned long TIMING_MAX_MS = 60000;
-enum { T_LID_STEP_PAUSE, T_LID_TO_ARM, T_PINION_PAUSE, T_ARM_HOLD, T_SPOOL_TO_LID, T_LID_TO_UNSPOOL, T_COOLDOWN };
+enum { T_LID_STEP_PAUSE, T_PIN_STEP_PAUSE, T_LID_TO_ARM, T_PINION_PAUSE, T_ARM_HOLD, T_SPOOL_TO_LID, T_LID_TO_UNSPOOL, T_COOLDOWN };
 #define TIMING(i) (timings[i].value)
 
 // -----------------------------------------------------------------------------
@@ -182,8 +187,16 @@ void moveLidInIncrements(long steps, unsigned cruiseUs = LID_STEP_US_CRUISE) {
   }
 }
 constexpr long PINION_FIRST_LEG = STEPS_180 * PINION_PAUSE_DEGREES / 180;
-void launchArm() { moveSteps(PIN_ARM_STEP, PIN_ARM_DIR, ARM_FORWARD_DIR, PINION_FIRST_LEG, STEP_US_CRUISE); }
-void resetPinion() { moveSteps(PIN_ARM_STEP, PIN_ARM_DIR, ARM_FORWARD_DIR, STEPS_360 - PINION_FIRST_LEG, STEP_US_CRUISE); }
+void movePinionInIncrements(long steps) {
+  for (long remaining = steps; remaining > 0;) {
+    long chunk = min(remaining, PINION_STEP_STEPS);
+    moveSteps(PIN_ARM_STEP, PIN_ARM_DIR, ARM_FORWARD_DIR, chunk, STEP_US_CRUISE);
+    remaining -= chunk;
+    if (remaining > 0) delay(TIMING(T_PIN_STEP_PAUSE));
+  }
+}
+void launchArm() { movePinionInIncrements(PINION_FIRST_LEG); }
+void resetPinion() { movePinionInIncrements(STEPS_360 - PINION_FIRST_LEG); }
 
 void spinArm() {
   launchArm();
@@ -335,18 +348,25 @@ unsigned long moveTimeUs(long steps, unsigned cruiseUs) {
   return us;
 }
 
-// "M,lid_open=<us>;<us>;...,launch=<us>,reset=<us>,spool_in=<us>,lid_close=<us>,spool_out=<us>"
-// Motor move durations for the sequence, starting from home. lid_open lists each
-// JOG_STEPS increment (lid_step_pause sits between them).
+// Each increment's duration, ';'-separated.
+void printIncrements(long steps, long increment, unsigned cruiseUs) {
+  for (long remaining = steps; remaining > 0;) {
+    long chunk = min(remaining, increment);
+    remaining -= chunk;
+    Serial.printf("%lu%s", moveTimeUs(chunk, cruiseUs), remaining > 0 ? ";" : "");
+  }
+}
+
+// "M,lid_open=<us>;<us>;...,launch=<us>;...,reset=<us>;...,spool_in=<us>,lid_close=<us>,spool_out=<us>"
+// Motor move durations for the sequence, starting from home. lid_open, launch and
+// reset list each increment (lid_step_pause / pin_step_pause sit between them).
 void reportMotion() {
   Serial.print("M,lid_open=");
-  for (long remaining = LID_OPEN_STEPS; remaining > 0;) {
-    long chunk = min(remaining, JOG_STEPS);
-    remaining -= chunk;
-    Serial.printf("%lu%s", moveTimeUs(chunk, LID_STEP_US_CRUISE), remaining > 0 ? ";" : "");
-  }
-  Serial.printf(",launch=%lu", moveTimeUs(PINION_FIRST_LEG, STEP_US_CRUISE));
-  Serial.printf(",reset=%lu", moveTimeUs(STEPS_360 - PINION_FIRST_LEG, STEP_US_CRUISE));
+  printIncrements(LID_OPEN_STEPS, JOG_STEPS, LID_STEP_US_CRUISE);
+  Serial.print(",launch=");
+  printIncrements(PINION_FIRST_LEG, PINION_STEP_STEPS, STEP_US_CRUISE);
+  Serial.print(",reset=");
+  printIncrements(STEPS_360 - PINION_FIRST_LEG, PINION_STEP_STEPS, STEP_US_CRUISE);
   Serial.printf(",spool_in=%lu", moveTimeUs(SPOOL_REEL_STEPS, SPOOL_STEP_US_CRUISE));
   Serial.printf(",lid_close=%lu", moveTimeUs(LID_OPEN_STEPS, LID_STEP_US_CRUISE));
   Serial.printf(",spool_out=%lu\n", moveTimeUs(SPOOL_REEL_STEPS, SPOOL_STEP_US_CRUISE));
