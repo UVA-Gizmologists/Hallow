@@ -1463,8 +1463,18 @@ const machine = (() => {
     if (live && STEP_CMD[state]) {
       devBusy = true;
       note = '';
-      send(STEP_CMD[state]);
+      const sent = STEP_CMD[state];
+      send(sent);
       updateUI();
+      // Firmware older than the step commands ignores them; don't wait forever.
+      setTimeout(() => {
+        if (devBusy && !busy && !devQueue.length && STEP_CMD[state] === sent) {
+          devBusy = false;
+          cycling = false;
+          note = `The ESP didn't answer ${sent}: flash the latest firmware.`;
+          updateUI();
+        }
+      }, 2000);
       return;
     }
     animate(state); // Triggered moves no motor, so it's animated here even when live
