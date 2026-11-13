@@ -376,7 +376,7 @@ void reportMotion() {
   Serial.printf(",spool_in=%lu", moveTimeUs(SPOOL_REEL_STEPS, SPOOL_STEP_US_CRUISE));
   Serial.printf(",spool_back=%lu", moveTimeUs(SPOOL_BACKOFF_STEPS, SPOOL_STEP_US_CRUISE));
   Serial.printf(",lid_close=%lu", moveTimeUs(LID_OPEN_STEPS, LID_STEP_US_CRUISE));
-  Serial.printf(",spool_out=%lu\n", moveTimeUs(SPOOL_REEL_STEPS, SPOOL_STEP_US_CRUISE));
+  Serial.printf(",spool_out=%lu\n", moveTimeUs(SPOOL_REEL_STEPS - SPOOL_BACKOFF_STEPS, SPOOL_STEP_US_CRUISE));
 }
 
 void reportTimings() {
